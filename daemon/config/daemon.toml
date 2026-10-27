@@ -1,0 +1,4 @@
+catalog = "/home/student/CyberLab-labs"
+allowed_uids = [1000]
+allowed_images = ["busybox:1.37.0", "cyberlab/demo-users:0.6.0"]
+authoring = true

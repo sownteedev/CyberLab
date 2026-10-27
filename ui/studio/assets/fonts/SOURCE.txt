@@ -1,0 +1,9 @@
+Inter 4.1, official release by Rasmus Andersson
+Source: https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip
+Files: extras/ttf/Inter-{Regular,Medium,SemiBold,Bold,Italic,BoldItalic}.ttf
+License: SIL Open Font License 1.1, see LICENSE-Inter.txt.
+Unmodified static TTF faces are loaded locally; no network font dependency.
+
+Liga SFMono Nerd Font is a user-installed preference, NOT included here or in
+the wheel. The Apple-derived font needs a separate distribution/license review
+before an OVA containing it is shared. Without it, use the platform monospace.

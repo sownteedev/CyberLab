@@ -1,0 +1,29 @@
+[Unit]
+Description=CyberLab privileged lab runtime service
+Requires=docker.service
+After=docker.service dbus.service
+
+[Service]
+Type=dbus
+BusName=org.ptit.CyberLab1
+ExecStart=/usr/lib/cyberlab/venv/bin/cyberlabd --config /etc/cyberlab/daemon.toml
+User=root
+Group=root
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=CAP_CHOWN
+TimeoutStopSec=300
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

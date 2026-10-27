@@ -1,0 +1,6 @@
+Material Symbols Rounded, 24px, optical size 24, weight 400, unfilled.
+Source: https://github.com/google/material-design-icons/tree/master/symbols/web
+Retrieved: 2026-10-23. Original SVG paths are unchanged.
+License: Apache License 2.0; see LICENSE.txt.
+Bundled locally for offline use; no fonts or runtime downloads.
+more_horiz.svg added from the same upstream on 2026-10-26, unchanged path.

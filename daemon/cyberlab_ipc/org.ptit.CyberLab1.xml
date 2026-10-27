@@ -1,0 +1,68 @@
+<node>
+  <interface name="org.ptit.CyberLab1">
+    <method name="GetAuthoringInfo"><arg name="info_json" type="s" direction="out"/></method>
+    <method name="CreateDraft"><arg name="lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="CloneLab"><arg name="source_lab_id" type="s" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="EditLab"><arg name="lab_id" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="ListDrafts"><arg name="drafts_json" type="s" direction="out"/></method>
+    <method name="GetDraft"><arg name="draft_id" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="SaveDraft"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="definition" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="PutDraftAssets"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="assets" type="a(say)" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="GetDraftAsset"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="path" type="s" direction="in"/><arg name="data" type="ay" direction="out"/></method>
+    <method name="RemoveDraftAsset"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="path" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="ValidateDraft"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
+    <method name="CheckDraftRuntime"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
+    <method name="PublishDraft"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="reviewed_digest" type="s" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
+    <method name="UpdateLab"><arg name="lab_id" type="s" direction="in"/><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="reviewed_draft_digest" type="s" direction="in"/><arg name="expected_catalog_digest" type="s" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
+    <method name="DeleteDraft"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="deleted" type="b" direction="out"/></method>
+    <method name="ExportLabPackage"><arg name="lab_id" type="s" direction="in"/><arg name="archive" type="ay" direction="out"/></method>
+    <method name="ExportDraftPackage"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="archive" type="ay" direction="out"/></method>
+    <method name="ImportLabPackage"><arg name="archive" type="ay" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="ImportLabtainer"><arg name="archive" type="ay" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="GetVersion"><arg name="version" type="s" direction="out"/></method>
+    <method name="GetCapabilities"><arg name="capabilities" type="as" direction="out"/></method>
+    <method name="ListLabs"><arg name="labs" type="aa{sv}" direction="out"/></method>
+    <method name="GetLab"><arg name="lab_id" type="s" direction="in"/><arg name="lab" type="a{sv}" direction="out"/></method>
+    <method name="DeleteLab"><arg name="lab_id" type="s" direction="in"/><arg name="deleted" type="b" direction="out"/></method>
+    <method name="GetLabDocumentation"><arg name="lab_id" type="s" direction="in"/><arg name="documentation" type="a{sv}" direction="out"/></method>
+    <method name="GetSessionDocumentation"><arg name="session_id" type="s" direction="in"/><arg name="documentation" type="a{sv}" direction="out"/></method>
+    <method name="CheckWork"><arg name="session_id" type="s" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
+    <method name="ListCheckReports"><arg name="session_id" type="s" direction="in"/><arg name="reports_json" type="s" direction="out"/></method>
+    <method name="GetCheckReport"><arg name="report_id" type="s" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
+    <method name="DeleteCheckReport"><arg name="report_id" type="s" direction="in"/><arg name="deleted" type="b" direction="out"/></method>
+    <method name="ExportSubmission"><arg name="report_id" type="s" direction="in"/><arg name="archive" type="ay" direction="out"/></method>
+    <method name="PrepareSubmission"><arg name="session_id" type="s" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
+    <method name="FinalizeSubmission"><arg name="session_id" type="s" direction="in"/><arg name="report_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ReviewSubmissions"><arg name="packages" type="a(say)" direction="in"/><arg name="review_json" type="s" direction="out"/></method>
+    <method name="SubmitQuiz"><arg name="session_id" type="s" direction="in"/><arg name="answers_json" type="s" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
+    <method name="GetQuizAttempt"><arg name="session_id" type="s" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
+    <method name="GetLabQuiz"><arg name="lab_id" type="s" direction="in"/><arg name="quiz_json" type="s" direction="out"/></method>
+    <method name="SubmitLabQuiz"><arg name="lab_id" type="s" direction="in"/><arg name="lab_digest" type="s" direction="in"/><arg name="answers_json" type="s" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
+    <method name="DeleteLabQuizAttempt"><arg name="lab_id" type="s" direction="in"/><arg name="deleted" type="b" direction="out"/></method>
+    <method name="ImportFile"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="name" type="s" direction="in"/><arg name="data" type="ay" direction="in"/><arg name="receipt" type="a{sv}" direction="out"/></method>
+    <method name="ListImports"><arg name="session_id" type="s" direction="in"/><arg name="imports" type="aa{sv}" direction="out"/></method>
+    <method name="ListWorkspace"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="workspace_json" type="s" direction="out"/></method>
+    <method name="ReadWorkspaceFile"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="path" type="s" direction="in"/><arg name="data" type="ay" direction="out"/></method>
+    <method name="ExportWorkspace"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="path" type="s" direction="in"/><arg name="archive" type="ay" direction="out"/></method>
+    <method name="ImportWorkspace"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="name" type="s" direction="in"/><arg name="archive" type="ay" direction="in"/><arg name="receipt_json" type="s" direction="out"/></method>
+    <method name="StartLab"><arg name="lab_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="StartLabWithParameters"><arg name="lab_id" type="s" direction="in"/><arg name="parameters" type="a{ss}" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ListSessions"><arg name="sessions" type="aa{sv}" direction="out"/></method>
+    <method name="GetSession"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="StopSession"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ResetSession"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="SaveSession"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="SuspendSession"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ResumeSession"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="DiscardSessionCheckpoint"><arg name="session_id" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="OpenTerminal"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="rows" type="q" direction="in"/><arg name="columns" type="q" direction="in"/><arg name="terminal_id" type="s" direction="out"/></method>
+    <method name="OpenTerminalSlot"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="slot" type="u" direction="in"/><arg name="rows" type="q" direction="in"/><arg name="columns" type="q" direction="in"/><arg name="terminal_id" type="s" direction="out"/></method>
+    <method name="ReadTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="output" type="(ayb)" direction="out"/></method>
+    <method name="WriteTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="data" type="ay" direction="in"/><arg name="accepted" type="u" direction="out"/></method>
+    <method name="ResizeTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="rows" type="q" direction="in"/><arg name="columns" type="q" direction="in"/><arg name="resized" type="b" direction="out"/></method>
+    <method name="CloseTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="detached" type="b" direction="out"/></method>
+  </interface>
+  <interface name="org.freedesktop.DBus.Introspectable">
+    <method name="Introspect"><arg name="xml" type="s" direction="out"/></method>
+  </interface>
+</node>

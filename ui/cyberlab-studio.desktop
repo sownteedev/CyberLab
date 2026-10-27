@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=CyberLab Studio
+Comment=Create and practice isolated local labs
+Exec=/usr/local/bin/cyberlab-studio
+Icon=applications-education-science
+Terminal=false
+Categories=Education;Science;
+StartupNotify=false

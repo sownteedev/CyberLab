@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyberlab-engine"
+version = "0.9.0"
+description = "CyberLab engine, System D-Bus daemon, and CLI runtime MVP"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML>=6.0.3,<7",
+    "jsonschema>=4.26,<5",
+    "dbus-next>=0.2.3,<0.3",
+    "docker>=7.1,<8",
+]
+
+[project.scripts]
+cyberlab = "cyberlab_cli.main:main"
+cyberlabd = "cyberlabd.main:main"
+cyberlab-studio = "cyberlab_studio.launcher:main"
+
+[tool.setuptools]
+packages = [
+    "cyberlab", "cyberlab.lab", "cyberlab.schemas", "cyberlab.session", "cyberlab.authoring",
+    "cyberlab.policy", "cyberlab.runtime", "cyberlabd", "cyberlab_cli",
+    "cyberlab_ipc", "cyberlab_studio",
+]
+
+[tool.setuptools.package-dir]
+cyberlab = "engine/cyberlab"
+"cyberlab.schemas" = "schemas"
+cyberlabd = "daemon/cyberlabd"
+cyberlab_cli = "cli/cyberlab_cli"
+cyberlab_ipc = "daemon/cyberlab_ipc"
+cyberlab_studio = "ui"
+
+[tool.setuptools.package-data]
+"cyberlab.schemas" = ["v1/*.json"]
+cyberlab_ipc = ["*.xml"]
+cyberlab_studio = ["studio/*.qml", "studio/qmldir", "studio/**/*.qml", "studio/**/*.js", "studio/assets/icons/*.svg", "studio/assets/icons/*.txt", "studio/assets/fonts/*.ttf", "studio/assets/fonts/*.txt"]
