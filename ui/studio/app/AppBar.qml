@@ -1,86 +1,169 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import ".."
 import ".." as Studio
 
 ToolBar {
     id: bar
-    property string heading: ""
-    property string subtitle: ""
-    property bool connected: false
-    property bool demo: false
-    property bool busy: false
+
     property bool activity: busy
-    property bool showCreate: true
-    signal createRequested()
-    signal refreshRequested()
-    signal settingsRequested()
-    implicitHeight: Studio.Theme.appBarHeight
-    background: Rectangle { color: Studio.Theme.surface }
-    RowLayout {
+    property bool busy: false
+    property bool connected: false
+    readonly property bool compact: width < Studio.Theme.compactBreakpoint
+    property int currentIndex: 0
+    property bool demo: false
+    property bool windowMaximized: false
+
+    signal closeRequested
+    signal navigationRequested(int index)
+    signal maximizeRequested
+    signal moveRequested
+    signal refreshRequested
+    signal settingsRequested
+
+    implicitHeight: Studio.Theme.appBarHeight + (compact ? Studio.Theme.controlHeight + Studio.Theme.space8 : 0)
+
+    background: Rectangle {
+        color: Studio.Theme.surface
+    }
+
+    MouseArea {
+        id: dragArea
+
         anchors.fill: parent
-        anchors.leftMargin: Studio.Theme.appBarInset
-        anchors.rightMargin: Studio.Theme.appBarInset
-        anchors.topMargin: Studio.Theme.appBarVerticalInset
-        anchors.bottomMargin: Studio.Theme.appBarVerticalInset
-        spacing: Studio.Theme.contentGap
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            spacing: 2
-            Label {
-                Layout.fillWidth: true
-                text: bar.heading
-                color: Studio.Theme.textOnSurface
-                font.pixelSize: Studio.Theme.titleLarge
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
+        acceptedButtons: Qt.LeftButton
+        objectName: "topbarDragArea"
+
+        onPressed: event => {
+            const navigationPoint = navigation.mapFromItem(dragArea, event.x, event.y);
+            const actionsPoint = headerActions.mapFromItem(dragArea, event.x, event.y);
+            if (navigation.contains(navigationPoint) || headerActions.contains(actionsPoint)) {
+                event.accepted = false;
+                return;
             }
-            Label {
-                Layout.fillWidth: true
-                text: bar.subtitle
-                visible: bar.subtitle.length > 0 && bar.width >= Studio.Theme.compactBreakpoint
-                color: Studio.Theme.textOnSurfaceVariant
-                font.pixelSize: Studio.Theme.bodySmall
-                elide: Text.ElideRight
-            }
-        }
-        StatusBadge {
-            text: bar.connected ? (bar.demo ? "Demo" : "Đã kết nối") : "Mất kết nối"
-            iconName: bar.connected ? "check_circle" : "cloud_off"
-            Accessible.description: "System D-Bus"
-            bgColor: bar.connected ? Studio.Theme.successContainer : Studio.Theme.errorContainer
-            dotColor: bar.connected ? Studio.Theme.success : Studio.Theme.error
-            textColor: bar.connected ? Studio.Theme.textOnSuccessContainer : Studio.Theme.textOnErrorContainer
-        }
-        StudioIconButton {
-            objectName: "openSettingsButton"
-            iconName: "settings"
-            description: "Cài đặt"
-            onClicked: bar.settingsRequested()
-        }
-        StudioIconButton {
-            iconName: "refresh"
-            description: "Làm mới"
-            enabled: !bar.busy
-            onClicked: bar.refreshRequested()
-        }
-        StudioButton {
-            visible: bar.showCreate
-            text: "Tạo bài"
-            iconName: "add"
-            highlighted: true
-            enabled: !bar.busy
-            onClicked: bar.createRequested()
+            bar.moveRequested();
         }
     }
-    LoadingState {
-        objectName: "headerActivity"
+    GridLayout {
+        id: headerLayout
+        anchors.bottomMargin: Studio.Theme.appBarVerticalInset
+        anchors.fill: parent
+        anchors.leftMargin: bar.compact ? Studio.Theme.space8 : Studio.Theme.appBarInset
+        anchors.rightMargin: bar.compact ? Studio.Theme.space8 : Studio.Theme.appBarInset
+        anchors.topMargin: Studio.Theme.appBarVerticalInset
+        columns: 4
+        columnSpacing: bar.compact ? Studio.Theme.space8 : Studio.Theme.contentGap
+        rowSpacing: Studio.Theme.space8
+
+        RowLayout {
+            Layout.row: 0
+            Layout.column: 0
+            Layout.columnSpan: bar.compact ? 3 : 1
+            Layout.fillWidth: bar.compact
+            Layout.minimumWidth: Studio.Theme.controlHeight - Studio.Theme.space8
+            Layout.preferredWidth: bar.width >= 1000 || bar.compact ? 200 : Studio.Theme.controlHeight - Studio.Theme.space8
+            spacing: Studio.Theme.space8
+
+            Image {
+                Layout.preferredWidth: Studio.Theme.controlHeight - Studio.Theme.space8
+                Layout.preferredHeight: Studio.Theme.controlHeight - Studio.Theme.space8
+                Accessible.name: "CyberLab Studio"
+                Accessible.role: Accessible.Graphic
+                objectName: "cyberlabBrand"
+                source: "../assets/branding/cyberlab-studio.svg"
+                sourceSize: Qt.size(96, 96)
+                fillMode: Image.PreserveAspectFit
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                spacing: 2
+                visible: bar.width >= 1000 || (bar.compact && bar.width >= 520)
+
+                Label {
+                    Layout.fillWidth: true
+                    color: Studio.Theme.textOnSurface
+                    elide: Text.ElideRight
+                    font.family: Studio.Theme.fontFamily
+                    font.pixelSize: Studio.Theme.titleMedium
+                    font.weight: Font.DemiBold
+                    text: "CyberLab"
+                }
+                Label {
+                    Layout.fillWidth: true
+                    color: Studio.Theme.textOnSurfaceVariant
+                    elide: Text.ElideRight
+                    font.family: Studio.Theme.fontFamily
+                    font.pixelSize: Studio.Theme.bodySmall
+                    objectName: "cyberlabDescription"
+                    text: qsTr("Không gian thực hành")
+                }
+            }
+        }
+        Studio.StudioNavigation {
+            id: navigation
+            Layout.row: bar.compact ? 1 : 0
+            Layout.column: bar.compact ? 0 : 1
+            Layout.columnSpan: bar.compact ? 4 : 1
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: Math.min(implicitWidth, headerLayout.width)
+            currentIndex: bar.currentIndex
+            enabled: !bar.busy
+
+            onIndexRequested: index => bar.navigationRequested(index)
+        }
+        Item {
+            objectName: "topbarSpacer"
+            Layout.row: 0
+            Layout.column: 2
+            Layout.fillWidth: true
+            visible: !bar.compact
+        }
+        RowLayout {
+            id: headerActions
+            Layout.row: 0
+            Layout.column: 3
+            spacing: bar.compact ? Studio.Theme.space4 : Studio.Theme.space8
+
+            Studio.StatusBadge {
+                Accessible.description: "System D-Bus"
+                bgColor: bar.connected ? Studio.Theme.successContainer : Studio.Theme.errorContainer
+                compact: bar.width < 1100
+                dotColor: bar.connected ? Studio.Theme.success : Studio.Theme.error
+                iconName: bar.connected ? "check_circle" : "cloud_off"
+                objectName: "connectionStatus"
+                text: bar.connected ? (bar.demo ? "Demo" : "Đã kết nối") : "Mất kết nối"
+                textColor: bar.connected ? Studio.Theme.textOnSuccessContainer : Studio.Theme.textOnErrorContainer
+            }
+            Studio.StudioIconButton {
+                description: "Cài đặt"
+                iconName: "settings"
+                objectName: "openSettingsButton"
+
+                onClicked: bar.settingsRequested()
+            }
+            Studio.StudioIconButton {
+                description: "Làm mới"
+                enabled: !bar.busy
+                iconName: "refresh"
+                objectName: "refreshButton"
+
+                onClicked: bar.refreshRequested()
+            }
+            Studio.WindowControls {
+                maximized: bar.windowMaximized
+
+                onCloseRequested: bar.closeRequested()
+                onMaximizeRequested: bar.maximizeRequested()
+            }
+        }
+    }
+    Studio.LoadingState {
+        anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: implicitHeight
         busy: bar.activity
+        height: implicitHeight
+        objectName: "headerActivity"
     }
 }

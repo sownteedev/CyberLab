@@ -1,5 +1,211 @@
 # Local Lab Authoring Backend (0.9.0)
 
+## Studio authoring contract (2026-11-11)
+
+This section defines the current Studio workflow and supersedes the historical
+backend-only milestone description below. Newly authored Labs use:
+
+```text
+CyberLab-labs/<lab-id>/
+  lab.yaml
+  assets/
+    docs/guide.md
+    files/<node-id>/...
+    editor/<node-id>/...
+    startup/<node-id>/start.sh
+```
+
+Only `lab.yaml` is mandatory. Assets are created when the author adds them;
+empty folders, placeholder instructions and startup scripts are not generated
+for every Lab. `lab.yaml` declares `apiVersion`, `kind`, `metadata`, `nodes`
+(at least one) and `networks` (which may be empty). Publication still validates
+the complete definition, assets, image policy and prepared software.
+
+| Studio section | Stored content |
+| --- | --- |
+| Overview | `metadata`: ID, name, version |
+| Machines / Configuration | `nodes`: environment, account, terminals, connections |
+| Machines / Software | `nodes[].software`: packages and optional GUI apps |
+| Machines / Startup | Optional startup-script switch; shell and custom argv under Advanced |
+| Networks | `networks`, with optional subnet and advanced gateway |
+| Files | Tree and tabbed editor; private resources under `assets/editor/<node-id>/`, linked through `nodes[].files` |
+| Instructions | Markdown at `assets/docs/guide.md`, linked through `documentation` |
+| Options | Optional checks, quizzes, evidence and parameters in `lab.yaml` |
+| Check / Save to library | Validate and publish the reviewed revision |
+
+Machine configuration uses balanced fields and network cards; only attached
+static networks show an IP input. Advanced resources, terminal metadata,
+name resolution and accounts are separate collapsible groups, without clearing
+hidden values. New Ubuntu nodes enable GUI using the daemon's software resource
+defaults. The software page has no GUI switch; preparation also supports GUI-only
+machines. Opening existing Labs/drafts does not silently rewrite their software.
+
+Startup is a first-class authoring control, not a new runtime service or schema.
+Enabling the startup-script switch creates the asset and its machine-local mapping, then sets
+`command` to `[/bin/sh, start.sh]`. Authors write directly in Studio or import
+a `.sh` file; imports select Bash for a Bash shebang, otherwise POSIX sh. The
+shell remains selectable under Advanced. The normal view contains only the
+switch, a script editor with line numbers/shell highlighting and a Choose file
+action. With the switch off, the
+environment's default command runs; no script is required. Existing custom argv
+is preserved and indicated explicitly, with its editor under Advanced. Replacing
+a script with custom argv or vice versa requires confirmation tied to the current
+draft/node/revision/definition. Switching modes retains script contents and can
+restore the previous custom command within the editing session.
+The generated template ends with `exec sleep infinity`;
+authors running a server can instead end with its foreground command. Scripts
+run as the configured machine account when the container starts, not when an
+ordinary terminal is opened. Privileges remain unchanged. Installing a package
+does not implicitly configure or start a service such as SSH.
+
+The main Save/Publish flow and Ctrl+S save the definition, text/binary resources,
+empty directories and deletions in one revision-checked `SaveDraftWorkspace`
+transaction. Failed saves retain all pending work. File imports are staged in
+the editor until Save; reading a local file does not write to a draft. These
+operations never update an installed Lab without publication/update.
+
+Active startup scripts appear in Files and share their text buffer with Startup.
+Managed shell/script command paths follow tree renames. Deleting an active
+startup script requires first selecting another startup mode; arbitrary paths
+inside user code are never rewritten. Shared scripts in Startup remain read-only
+until copied; editing in the file tree creates private machine resources.
+Editing shared instructions creates a separate documentation resource.
+Existing custom argv, script paths, imports and asset layouts remain valid.
+Canonical paths describe new content, not a loader requirement. Renaming a
+machine does not move existing assets. Name collisions use numbered script
+filenames rather than overwrite anything. Switching to Default preserves files;
+switching back in the same editing session reuses the previous script.
+
+If an existing machine maps a folder onto its entire home (`target: .`), adding
+a separate startup script expands that mapping into its immediate children.
+Contents and destinations remain unchanged; the 16-mapping limit is checked
+before mutation. This preserves the engine's non-overlapping-target policy.
+Legacy per-file and root mappings remain supported. The file workspace converts
+only the machine being edited to a private root when its resources are mutated.
+
+### File workspace
+
+The instruction editor links source and preview vertical scrolling by relative
+scroll position in both directions. This is proportional synchronization, not
+a Markdown source-line map. Library, practice and authoring preview share the
+same readable typography, paragraph/heading spacing, padded tables and code
+blocks. Styling changes the rendered view only, never the saved Markdown.
+Instructions remain UTF-8 Markdown up to 64 KiB; Word/PDF, embedded images,
+executable HTML and extensions such as Mermaid or LaTeX are not rendered.
+
+Each machine is a tree root; paths below it are relative to its Lab workspace.
+Right-click or the small menu button creates files/folders, imports local
+resources, renames or deletes. Names are entered inline (Enter accepts, Escape
+cancels); deletion requires confirmation and duplicate names are rejected.
+The tree contains only authored seed resources, never live container files.
+
+The editor has tabs, line numbers, indentation, undo/redo and in-file search.
+UTF-8 text without NUL is editable up to 64 KiB. Binary/larger resources remain
+in the tree but are not decoded into editable text. Closing a tab retains its
+pending buffer; switching sections/machines does not discard work. The existing
+draft exit/reload confirmations include pending resource changes.
+The editor's back arrow remains available with unsaved edits. Returning to the
+draft picker asks before discarding them; cancelling keeps the current buffers.
+Confirming restores the saved draft without saving, publishing or deleting it.
+
+The Material 3 workspace uses tonal panes, rounded selection states and 48-pixel
+tree rows/actions. Tabs show the filename, adding machine/path context only for
+duplicate names; the breadcrumb always keeps the complete path. Tab activation
+and closing work from the keyboard, and focused/active tabs scroll into view.
+Narrow windows stack the tree above the editor. All colors follow the existing
+light/dark theme; state animations use the shared motion tokens. These are UI-only
+changes: saving, seed-file limits and the daemon contract are unchanged.
+All authoring sections use the available content width with small side gutters.
+The file workspace grows with the remaining viewport height; short windows keep
+its minimum editing height and allow the section to scroll.
+Line numbers have a separate muted color and divider. Syntax colors are selected
+by filename for Python, shell scripts, JSON, YAML, JavaScript and Markdown, with
+Python/shell shebang detection for extensionless scripts. Unknown files remain
+plain text. Highlight.js 11.11.1 is bundled locally (BSD-3-Clause); no API,
+runtime download, code execution or additional system package is required.
+Only a display layer is colored; the editable buffer, selection, clipboard and
+saved data stay plain text. IME composition temporarily uses native text rendering.
+Highlighting runs in a background WorkerScript with one in-flight request per
+active editor, discarding outdated results. Both light and dark palettes are
+supported. See `ui/studio/vendor/highlightjs.PROVENANCE.txt` and
+`tools/vendor_code_syntax.py` for the pinned archive and QML adaptations.
+File/folder creation and rename validation errors use the existing floating
+notification instead of the distant page banner, retaining the name for correction.
+Existing editor limitation: long unwrapped lines can be scrolled horizontally,
+but caret tracking currently scrolls only vertically.
+
+On first mutation of a legacy/shared node mapping, resources are copied to an
+unused private root and the node receives one root mapping. Copies and mapping
+changes commit together. Other machines, shared documentation and unpublished
+catalog data remain untouched. Backend limits remain 128 paths and 2 MiB total;
+individual binary assets are bounded to 1 MiB. Paths have at most eight segments,
+200 characters and the existing safe-name rules. The daemon reads no host paths.
+
+Verification: `node tools/check_file_model.cjs`, `tools/check_file_editor.py`,
+`tools/check_notifications.py --suite files`, and the existing editor/native
+checks. The private-bus test covers CLI -> daemon -> transaction -> validation
+and publication into a temporary catalog, including binary and empty folders.
+
+Deployment verified on 2026-11-11: installed wheel
+`/tmp/cyberlab-file-editor-release-20261111-711hm6g8/cyberlab_engine-0.9.0-py3-none-any.whl`,
+SHA256 `0e178c82025a391733bbf3ea4ada4c50ccafc4fa044f9c20b8bc7896b2820806`;
+rollback backup `/var/tmp/cyberlab-runtime-backup-g4b9aox_`.
+All 298 installed package files match the wheel. The daemon advertises
+`file_workspace`, remains active and has no Sessions. Source editor checks
+(103), file workspace (8), software (19), practice (26), landing (20), backend
+(18) and startup package/materialization (4) passed; installed file workspace
+checks also passed (8). Native Quickshell loaded the updated editor, and the
+normal installed Studio launch loaded successfully. The existing startup
+warning from `NodeSoftwareEditor.qml:122` (null policy before initial load) and
+the host accessibility subscription warning remain outside this change.
+Verification windows were closed by their exact process group. No real-Docker
+Session or production catalog/draft mutation was used for acceptance testing.
+
+Material 3 update deployed on 2026-11-12: wheel
+`/tmp/cyberlab-file-md3-release-20261112-wrd64jsp/cyberlab_engine-0.9.0-py3-none-any.whl`,
+SHA256 `7da83764705d99fe56e1406e76574ecf757ea0b20f147316b5453204236be40e`;
+rollback backup `/var/tmp/cyberlab-runtime-backup-ea29nycs`.
+All 299 installed package files match the wheel; the daemon is active with no
+Sessions. Source checks: file workspace (11), editor (103), software (19),
+practice (26), landing (20), backend (18), startup authoring (4), and the file
+model checks passed. Native Quickshell loaded the editor. Visual checks cover
+wide/narrow layouts, light/dark palettes and the file context menu. Regression
+checks cover readable tab labels, 48-pixel close targets, duplicate filenames,
+keyboard focus scrolling and tab/tree synchronization through collapsed folders.
+Installed file-workspace checks also passed (11), and a normal installed Studio
+launch loaded successfully. Its verification process group was closed afterward;
+the previously documented startup/accessibility warnings remain unchanged.
+
+Syntax colors and file-name notifications deployed on 2026-11-12: wheel
+`/tmp/cyberlab-syntax-release-20261112-haj7twyf/cyberlab_engine-0.9.0-py3-none-any.whl`,
+SHA256 `5a9c3a0f7000c902f9e2790c7d26b2cae17aeb53faa5ecb299ec91e9fcd85937`;
+rollback backup `/var/tmp/cyberlab-runtime-backup-q90__ubz`.
+All 306 installed package files match the wheel. Installed file tests passed
+(23), including popup validation, syntax palettes, text/undo preservation,
+Unicode/tab geometry and stale worker results. Native Quickshell rendered the
+Python color layer (`CYBERLAB_SYNTAX_LOAD_PASS`). The daemon is active with no
+Sessions; the guarded updater preserved the catalog and configuration.
+
+Known host Qt 6.12 diagnostic: WorkerScript initializes a QtObject without an
+associated QJSEngine, logging `QObject::connect(QJSEngine, QtObject): invalid
+nullptr parameter`. The worker still returns verified results. The test helper
+accepts only that exact diagnostic when explicitly passed
+`--allow-worker-init-warning`; it retains original warnings in the log and
+continues to fail other warnings. No Qt package or runtime warning filter was
+changed. Syntax is display-only, not a parser/validator for executing code.
+
+A teaching-ready Lab normally has a working environment, instructions with
+objectives/tasks/expected results, and any required input data. Startup scripts,
+GUI apps and automated checks are optional. Sessions, saved work, images and
+runtime-generated SSH keys are not part of this template directory. Referenced
+images/prepared environments must also be available on the destination host;
+exporting a Lab package does not bundle them.
+
+Verification: `check_notifications.py --suite editor --native` covers script
+authoring and existing Labs. `check_startup_authoring.py --qml-log LOG` validates
+and publishes the actual package emitted by that QML test into a temporary
+catalog, then checks export/import and workspace seed materialization.
+
 ## Product Boundary
 
 This milestone implements the backend of the future **Lab editor**, not another
@@ -130,6 +336,49 @@ update/version-management workflow. Publication does not interrupt Sessions.
 
 ## Shared D-Bus Contract
 
+### Resume Editing (2026-10-30)
+
+Studio's **Edit** action and `cyberlab draft edit LAB` share daemon-side reuse:
+no matching draft creates one, one matching draft returns it unchanged, and
+multiple matches return `{selection_required: true, lab_id, drafts}` without
+writing anything. Candidates must belong to the caller, retain the same Lab ID
+in their definition, and carry the matching installed-Lab origin. Names alone
+are not identities; unrelated new/imported drafts are not silently adopted.
+The lookup and creation run under the lifecycle/store locks to prevent two
+simultaneous requests from creating duplicates in the daemon.
+
+Studio shows a bounded selection dialog with draft ID, revision and a warning
+if its origin differs from the current catalog digest. Revision is an edit
+counter, not a timestamp or a ranking of different drafts. Continuing the
+currently open matching draft preserves unsaved form/documentation edits.
+Opening another Lab requires saving current edits first. Cancel changes nothing;
+**Create separate draft** requires confirmation and preserves every old draft.
+The existing drafts are not cleaned up or merged automatically.
+
+CLI selection is `cyberlab draft edit LAB --draft DRAFT_ID`; explicit fresh copy
+is `cyberlab draft edit LAB --new`. These options are mutually exclusive. A
+deleted/mismatched choice fails instead of creating a replacement. Returned
+existing drafts keep their exact revision, contents/assets and original catalog
+digest, including stale origins; installed-update conflict checks are unchanged.
+`GetAuthoringInfo.resume_editing_draft` advertises the behavior. JSON consumers
+of `EditLab` must handle the selection response rather than assuming a draft.
+
+`tools/check_editing_drafts.py` uses temporary stores and an isolated private
+D-Bus daemon with MemoryRuntime, never the production catalog or Docker.
+
+Verification: 12 isolated backend/CLI/private-bus checks, 65 editor checks on
+source and installed QML, 20 landing checks, 34 dialog checks and 22 workstation
+regressions pass. Targeted qmllint and `git diff --check` pass. The guarded updater
+deployed wheel SHA256
+`2ac85c559d7b7d325454536edd6182a9a88a369929a6663bcbf8b091bdc9b12e`,
+backup `/var/tmp/cyberlab-runtime-backup-epm72_le`. Installed changed files match
+the artifact and the daemon advertises reuse. All three preexisting production
+draft IDs/revisions remain unchanged. The normal launcher loaded Studio; only
+that tracked verification window/process group was closed. No production edit,
+new draft, catalog mutation or real-Docker Session was used for verification.
+
+### Methods
+
 Capability `authoring` appears only when enabled. Service/interface and object
 remain `org.ptit.CyberLab1`, `/org/ptit/CyberLab1`.
 
@@ -137,7 +386,9 @@ remain `org.ptit.CyberLab1`, `/org/ptit/CyberLab1`.
 | --- | --- | --- |
 | GetAuthoringInfo | none | JSON string: schema, allowlist, limits, permission |
 | CreateDraft | `ss`: Lab ID, title | JSON draft |
-| ListDrafts | none | JSON list of IDs, owners, revisions |
+| EditLab | `s`: installed Lab ID | JSON draft or selection-required choices |
+| ResolveLabDraft | `ssb`: Lab ID, draft ID (or empty), fresh flag | JSON draft or choices; same reuse rules |
+| ListDrafts | none | JSON list of IDs, owners, revisions, Lab metadata and origins |
 | GetDraft | `s`: draft ID | JSON draft and asset metadata |
 | SaveDraft | `sus`: draft ID, revision, YAML/JSON definition | JSON draft |
 | PutDraftAssets | `sua(say)`: draft ID, revision, path/bytes pairs | JSON draft |
@@ -167,7 +418,7 @@ be the final student experience. No Docker commands are needed.
 
 ```sh
 cyberlab draft info
-cyberlab draft create my-lab --title 'Bai lab cua toi'
+cyberlab draft create my-lab --title 'Bai lab cua toi' --tag linux
 cyberlab draft list
 cyberlab draft show DRAFT_ID
 cyberlab draft show DRAFT_ID --definition > my-lab.yaml
@@ -254,6 +505,16 @@ or remove the database. There is no automatic rollback. Coding itself does not
 enable the service or install these system files.
 
 ## Verification and Remaining Work
+
+Studio translates authoring, validation, runtime and software errors into
+Vietnamese at the display boundary (`ui/studio/models/Messages.js`). The daemon
+contract, logs, identifiers, file contents and package names remain unchanged.
+Unrecognized external diagnostics are preserved rather than guessed or hidden.
+Validation and visible contextual errors also open the shared error popup;
+errors arriving together are grouped and duplicate lines are suppressed. Hidden
+fields do not raise stale popups, and dismissing a popup does not edit the draft.
+`node tools/check_messages.cjs` checks translations against backend error strings;
+the notifications UI suite checks popup delivery, localization and dismissal.
 
 Tests cover ownership, draft persistence, quotas, atomic uploads, stale and
 concurrent saves, safe local folder import, schema/asset/policy diagnostics,

@@ -5,13 +5,15 @@ import ".." as Studio
 
 Rectangle {
     id: handle
-    implicitWidth: Studio.Theme.space16
+
     color: Studio.Theme.transparent
+    implicitWidth: Studio.Theme.space16
+
     Rectangle {
         anchors.centerIn: parent
-        width: Studio.Theme.space4
+        color: handle.SplitHandle.hovered || handle.SplitHandle.pressed ? Studio.Theme.primary : Studio.Theme.outlineVariant
         height: Studio.Theme.controlHeight
         radius: Studio.Theme.shapeFull
-        color: handle.SplitHandle.hovered || handle.SplitHandle.pressed ? Studio.Theme.primary : Studio.Theme.outlineVariant
+        width: Studio.Theme.space4
     }
 }

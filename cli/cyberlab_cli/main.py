@@ -26,11 +26,20 @@ def unpack(value):
 
 
 async def request(bus, method, body):
+    from . import edit_access
+    protected = bool(edit_access.token()) and method not in {'UnlockEditing', 'SetEditPassword', 'RevokeEditing', 'ProtectedAuthoring'}
+    if protected:
+        from cyberlab_ipc.editing import encode, decode
+
+        result = await request(bus, 'ProtectedAuthoring', [edit_access.token(), method, encode(body)])
+        return decode(result)['value']
     signature, expected = METHODS[method]
+    from cyberlab.lab.software import STARTUP_TIMEOUT_SECONDS
+    lifecycle = method in {"StartLab", "StartLabWithParameters", "StartLabWithDesktop", "ResumeSession", "ResumeSessionWithDesktop", "ResetSession", "ResetSessionWithDesktop"}
     response = await asyncio.wait_for(bus.call(Message(
         destination=BUS_NAME, path=OBJECT_PATH, interface=INTERFACE,
         member=method, signature=signature, body=body,
-    )), timeout=180)
+    )), timeout=STARTUP_TIMEOUT_SECONDS + 180 if lifecycle else 180)
     if response.message_type == MessageType.ERROR:
         raise ClientError(f"{response.error_name}: {response.body[0] if response.body else 'Request failed'}")
     if response.signature != expected:
@@ -39,6 +48,28 @@ async def request(bus, method, body):
 
 
 async def run(arguments):
+    from .edit_access import context
+
+    with context(getattr(arguments, 'edit_context', False)):
+        return await run_command(arguments)
+
+async def run_command(arguments):
+    if arguments.command == 'gui-preferences':
+        from .gui_preferences import preference
+        from .gui_environment import inspect_environment
+
+        return {**preference(arguments.preferred), 'host': inspect_environment()}
+    if arguments.command == "gui-status":
+        from .gui_environment import inspect_environment
+
+        return inspect_environment()
+    if arguments.command == "open-desktop":
+        from .desktop import launch
+        return launch(arguments)
+    if arguments.command == "terminal-apps":
+        from .terminal_apps import inspect_apps
+
+        return inspect_apps(arguments.preferred)
     if arguments.command in {"submit", "finish-submission"}:
         from . import submissions
 
@@ -52,6 +83,10 @@ async def run(arguments):
     imported = None
     prepared = None
     package_data = None
+    if arguments.command == 'edit-access':
+        from . import edit_access
+
+        prepared = edit_access.prepare(arguments)
     workspace_commands = {"files", "import-folder", "export-file", "export-folder"}
     if arguments.command in workspace_commands:
         from . import workspace
@@ -71,7 +106,7 @@ async def run(arguments):
         from .packages import read_package
 
         package_data = read_package(arguments.file)
-    if arguments.command == "import-labtainer":
+    if arguments.command in {"import-labtainer", "inspect-labtainer"}:
         from .packages import read_labtainer
 
         package_data = read_labtainer(arguments.file)
@@ -83,6 +118,22 @@ async def run(arguments):
         raise ClientError("Export destination already exists; choose a new filename")
     bus = await MessageBus(bus_type=BusType.SESSION if arguments.test_session_bus else BusType.SYSTEM).connect()
     try:
+        if arguments.command == 'edit-access':
+            return await edit_access.run(bus, request, arguments, prepared)
+        if arguments.command in {"desktop-status", "prepare-desktop", "desktop"}:
+            from .desktop import interact
+            if arguments.command == "desktop-status":
+                from .gui_environment import inspect_environment
+                result = json.loads(await request(bus, "GetDesktopStatus", [arguments.id, arguments.node]))
+                environment = inspect_environment(force_xpra=result.get('backend') != 'native-x11')
+                result["viewer_ready"] = environment["ready"]
+                result["host"] = environment
+                return result
+            if arguments.command == "prepare-desktop":
+                if not arguments.yes:
+                    raise ClientError("Preparing desktop installs packages inside this lab; pass --yes")
+                return {"ready": await request(bus, "PrepareDesktop", [arguments.id, arguments.node])}
+            return await interact(bus, request, arguments.id, arguments.node)
         if arguments.command in {"submit", "finish-submission"}:
             return await submissions.run(bus, request, arguments)
         if arguments.command in workspace_commands:
@@ -122,8 +173,8 @@ async def run(arguments):
             return json.loads(await request(bus, "ImportLabPackage", [
                 package_data, arguments.target_lab_id or "", arguments.title or ""
             ]))
-        if arguments.command == "import-labtainer":
-            return json.loads(await request(bus, "ImportLabtainer", [
+        if arguments.command in {"import-labtainer", "inspect-labtainer"}:
+            return json.loads(await request(bus, "InspectLabtainer" if arguments.command == "inspect-labtainer" else "ImportLabtainer", [
                 package_data, arguments.target_lab_id or "", arguments.title or ""
             ]))
         if arguments.command == "review-submissions":
@@ -150,20 +201,23 @@ async def run(arguments):
             return json.loads(await request(bus, "SubmitQuiz", [arguments.id, payload]))
         if arguments.command == "quiz-result":
             return json.loads(await request(bus, "GetQuizAttempt", [arguments.id]))
-        if arguments.command == "start" and getattr(arguments, "parameters", None):
+        if arguments.command in {'start', 'resume', 'reset'}:
             values = {}
-            for item in arguments.parameters:
+            for item in getattr(arguments, 'parameters', None) or []:
                 if "=" not in item:
                     raise ClientError("Parameters must use id=value")
                 key, value = item.split("=", 1)
                 if not key or key in values:
                     raise ClientError("Parameter IDs must be unique and non-empty")
                 values[key] = value
-            return await request(bus, "StartLabWithParameters", [arguments.id, values])
+            from .display_context import lifecycle
+            return await lifecycle(bus, request, arguments, values)
         if arguments.command == "terminal":
             from .terminal import interact
 
-            return await interact(bus, request, arguments.id, arguments.node, arguments.slot)
+            return await interact(bus, request, arguments.id, arguments.node, arguments.slot,
+                                  window_token=arguments.window_token, window_title=arguments.window_title,
+                                  test_session_bus=arguments.test_session_bus)
         if arguments.command == "info":
             return {
                 "version": await request(bus, "GetVersion", []),
@@ -187,7 +241,11 @@ async def run(arguments):
 def main():
     parser = argparse.ArgumentParser(description="CyberLab CLI: all operations go through cyberlabd")
     parser.add_argument("--test-session-bus", action="store_true", help="Use the isolated test bus, not production")
+    parser.add_argument('--edit-context', action='store_true', help='Read memory-only token and original input from JSON stdin')
     commands = parser.add_subparsers(dest="command", required=True)
+    from .edit_access import add_parser as add_edit_access_parser
+
+    add_edit_access_parser(commands)
     from .submissions import add_parser as add_submission_parser
 
     add_submission_parser(commands)
@@ -199,6 +257,11 @@ def main():
     add_workspace_parser(commands)
     for name in ("info", "labs", "sessions"):
         commands.add_parser(name)
+    commands.add_parser("gui-status", help="Check local X11/Wayland application display support without contacting the daemon")
+    gui_preferences = commands.add_parser('gui-preferences', help='Inspect or select the local GUI backend policy')
+    gui_preferences.add_argument('--set', dest='preferred', choices=('auto', 'xpra'))
+    terminal_apps = commands.add_parser("terminal-apps", help="List or select native desktop terminals (local, no daemon required)")
+    terminal_apps.add_argument("--set", dest="preferred", metavar="auto|ID", help="Save this user's terminal preference")
     for name in ("show", "status", "stop", "reset", "imports", "save", "suspend"):
         commands.add_parser(name).add_argument("id")
     resume_cmd = commands.add_parser("resume", help="Resume a suspended or saved practice Session")
@@ -234,6 +297,10 @@ def main():
     imported_lt.add_argument("file", type=Path, help="Local Labtainer lab directory, .zip, .tar, .tar.gz or .tgz archive")
     imported_lt.add_argument("--as", dest="target_lab_id", help="Optional new Lab ID")
     imported_lt.add_argument("--title", help="Optional new Lab title")
+    inspected_lt = commands.add_parser("inspect-labtainer", help="Check Labtainer compatibility without creating a draft or running scripts")
+    inspected_lt.add_argument("file", type=Path, help="Local Labtainer directory or archive")
+    inspected_lt.add_argument("--as", dest="target_lab_id", help="Optional target Lab ID to validate")
+    inspected_lt.add_argument("--title", help="Optional target title to validate")
     review = commands.add_parser("review-submissions", help="Review exported submissions without changing Labs or Sessions")
     review.add_argument("files", nargs="+", type=Path, help="One or more .cyberlab-submission.zip files")
     quiz = commands.add_parser("quiz", help="Submit answers for a Session quiz")
@@ -257,9 +324,17 @@ def main():
     start.add_argument("--param", dest="parameters", action="append", default=[], metavar="ID=VALUE",
                        help="Override one declared Lab parameter; may be repeated")
     terminal = commands.add_parser("terminal", help="Attach to a node shell through cyberlabd")
+    for name in ("desktop-status", "prepare-desktop", "desktop", "open-desktop"):
+        desktop = commands.add_parser(name, help="Seamless Ubuntu application windows through cyberlabd")
+        desktop.add_argument("id", help="Session ID")
+        desktop.add_argument("node", help="Node ID")
+        if name == "prepare-desktop":
+            desktop.add_argument("--yes", action="store_true", help="Confirm GUI package installation inside this lab only")
     terminal.add_argument("id", help="Session ID, not Lab ID")
     terminal.add_argument("node", help="Node ID declared in the Lab")
     terminal.add_argument("--slot", type=int, default=0, choices=range(4), help="Independent shell slot, numbered from 0 (default)")
+    terminal.add_argument("--window-token", help=argparse.SUPPRESS)
+    terminal.add_argument("--window-title", default="", help=argparse.SUPPRESS)
     windows = commands.add_parser("open-terminals", help="Open tracked desktop windows for an existing Session")
     windows.add_argument("id", help="Session ID")
     windows.add_argument("--node", help="Open one node slot instead of all auto-open slots")
@@ -307,9 +382,12 @@ def main():
     except (KeyboardInterrupt, asyncio.CancelledError):
         return 130
     except Exception as error:
+        if arguments.command == "desktop":
+            with __import__("contextlib").suppress(BrokenPipeError):
+                print(json.dumps({"opened": False, "error": str(error)}), flush=True)
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
-    if arguments.command == "terminal":
+    if arguments.command in {"terminal", "desktop"}:
         return 0
     if arguments.command == "draft" and arguments.draft_action == "show" and arguments.definition:
         from .files import terminal_text
@@ -322,7 +400,22 @@ def main():
 
         print(terminal_text(result["content"]), end="" if result["content"].endswith("\n") else "\n")
         return 0
+    if arguments.command == "open-terminals":
+        from .windows import launch_terminals
+
+        try:
+            launched = launch_terminals(result, arguments.test_session_bus, interactive=False,
+                                        node_id=arguments.node, slot=arguments.slot or 0)
+        except (OSError, ValueError, RuntimeError) as error:
+            launched = {"errors": [str(error)], "warnings": [], "attached": 0}
+        result = {**result, "terminal_launch": launched}
+        print(json.dumps(result, indent=2, ensure_ascii=True), flush=True)
+        for message in launched["warnings"] + launched["errors"]:
+            print(f"NOTE: {message}; Session is kept.", file=sys.stderr)
+        return 1 if launched["errors"] else 0
     print(json.dumps(result, indent=2, ensure_ascii=True), flush=True)
+    if arguments.command == "desktop-status":
+        return 0
     expected_states = {"stop": "STOPPED", "reset": "RUNNING", "suspend": "SUSPENDED",
                        "submit": "STOPPED", "finish-submission": "STOPPED"}
     if arguments.command in expected_states and isinstance(result, dict) and result.get("id") == arguments.id and result.get("state") == expected_states[arguments.command]:
@@ -336,21 +429,18 @@ def main():
         if closed:
             suffix = "window" if closed == 1 else "windows"
             print(f"Requested closure of {closed} terminal {suffix} for Session {arguments.id}.", file=sys.stderr)
-    if arguments.command == "open-terminals":
-        from .windows import launch_terminals
-
-        try:
-            if result.get("state") != "RUNNING":
-                raise RuntimeError("Session is not running")
-            launch_terminals(result, arguments.test_session_bus, interactive=False,
-                             node_id=arguments.node, slot=arguments.slot or 0)
-        except (OSError, ValueError, RuntimeError) as error:
-            print(f"FAIL: {error}", file=sys.stderr)
-            return 1
     if arguments.command in ("start", "resume") and not getattr(arguments, "no_terminals", False):
         from .windows import launch_terminals
 
-        launch_terminals(result, arguments.test_session_bus)
+        if result.get("state") == "RUNNING":
+            try:
+                launched = launch_terminals(result, arguments.test_session_bus)
+                for message in launched["warnings"] + launched["errors"]:
+                    print(f"NOTE: {message}; Session is kept.", file=sys.stderr)
+            except (OSError, ValueError, RuntimeError) as error:
+                print(f"NOTE: {error}; Session is kept, attach manually with cyberlab terminal.", file=sys.stderr)
+    if arguments.command == "draft" and arguments.draft_action in {"software-plan", "software-status", "software-cancel"}:
+        return 0
     return 1 if isinstance(result, dict) and (result.get("state") == "FAILED" or result.get("valid") is False or result.get("ready") is False) else 0
 
 

@@ -10,7 +10,7 @@ ui/
   studio/
     shell.qml                Bootstrap: wire services, window and polling
     qmldir                   One registry of public QML types
-    app/                     AppBar, rail, window, routes and confirmations
+    app/                     AppBar, horizontal navigation, window and route guards
     components/              Shared buttons, inputs, cards, tree and Markdown
     services/                CLI transport, workflows and local preferences
     models/                  Pure JavaScript transformations and layout helpers
@@ -36,12 +36,32 @@ ui/
   `backend`; review requests are signals, not references to dialogs.
 - `DraftEditor.qml` composes that service with forms and confirmation dialogs.
   Its `service` property exposes the editor state to application navigation.
+- `DraftLanding.qml` owns the responsive start-page layout and focus scrolling;
+  `DraftCreateCard.qml` and `DraftListPane.qml` present the existing create,
+  open and refresh actions without adding their own transport or persistence.
+- `DraftWorkspace.qml` provides the editor shell: a responsive MD3 toolbar,
+  grouped `DraftNavigation` rail (icon-only at compact widths) and a centered
+  bounded content area.
+  `DraftFormCard` is the shared low-tonal surface for metadata, machine,
+  network, file, review and Labedit sections; `DraftObjectCard` presents
+  selectable machines and networks without changing the draft model.
+- `DraftEditorTest.qml` exercises the editor with an in-memory fixture only:
+  section navigation, dirty/busy guards, revision checks, documentation
+  preservation, compact review dialog and all editor sections. It never uses
+  the external catalog or starts a Session.
 - `StudioWindow.qml` handles window bounds, settings and guarded navigation;
   `StudioContent.qml` wires screens; `StudioDialogs.qml` owns destructive-action
   confirmations. Closing or navigating away still protects unsaved edits.
+- `StudioViewport.qml` scales content and the popup overlay in logical
+  coordinates and owns window-active zoom shortcuts. The native header wraps
+  the AppBar with the same scale, so modal scrims still cover the entire window.
+- `StudioNavigation.qml` is the compact, controlled three-destination switch in
+  `AppBar.qml`. It only requests navigation: selection follows the route after
+  the window has accepted it, never ahead of unsaved-editor confirmation.
 - `AppearanceStore.qml` persists only local appearance preferences. `Theme.qml`
   remains the single source of visual tokens, including compact typography,
-  stable button sizing and reduced motion.
+  stable button sizing and shared motion durations. Only theme and zoom are
+  persisted; the old reduced-motion preference is ignored.
 
 ## QML imports and packaging
 

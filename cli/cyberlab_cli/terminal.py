@@ -11,7 +11,11 @@ def terminal_size(descriptor):
     size = os.get_terminal_size(descriptor)
     return [max(1, min(size.lines, 1000)), max(1, min(size.columns, 1000))]
 
-async def interact(bus, request, session_id, node_id, slot=0):
+async def interact(bus, request, session_id, node_id, slot=0, *, window_token=None, window_title="", test_session_bus=False):
+    if window_token is not None:
+        from .window_registry import decode_title
+
+        window_title = decode_title(window_title)
     input_fd, output_fd = sys.stdin.fileno(), sys.stdout.fileno()
     if not os.isatty(input_fd) or not os.isatty(output_fd):
         raise RuntimeError("terminal requires an interactive TTY for stdin and stdout")
@@ -22,10 +26,19 @@ async def interact(bus, request, session_id, node_id, slot=0):
     task = asyncio.current_task()
     handlers = {}
     try:
-        print("Connected. Ctrl+] detaches; exit ends the shell.", file=sys.stderr, flush=True)
+        from .desktop import attach_prepared
+
         for signum in (signal.SIGTERM, signal.SIGHUP):
             handlers[signum] = signal.getsignal(signum)
             loop.add_signal_handler(signum, task.cancel)
+        await attach_prepared(bus, request, session_id, node_id, test_session_bus)
+        if window_token is not None:
+            from .window_registry import register_attachment
+
+            register_attachment(session_id, node_id, slot, window_token, window_title, test_session_bus)
+            safe_title = "".join(character for character in window_title if character.isprintable())[:128]
+            os.write(output_fd, f"\033]0;{safe_title}\007".encode("utf-8"))
+        print("Connected. Ctrl+] detaches; exit ends the shell.", file=sys.stderr, flush=True)
         tty.setraw(input_fd)
         pending = b""
         while True:
@@ -58,3 +71,8 @@ async def interact(bus, request, session_id, node_id, slot=0):
                 signal.signal(signum, handler)
             with suppress(Exception):
                 await asyncio.wait_for(request(bus, "CloseTerminal", [handle]), timeout=2)
+            if window_token is not None:
+                from .window_registry import unregister_attachment
+
+                with suppress(OSError, ValueError):
+                    unregister_attachment(session_id, window_token, test_session_bus)

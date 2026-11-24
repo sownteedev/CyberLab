@@ -38,8 +38,10 @@ Production labs live outside the repository at
 `/home/<user>/CyberLab-labs`. Do not copy tests or examples into that catalog
 as part of development, cleanup or installation verification. Drafts, saved
 practice, Docker images and installed services are also not part of a Git clone.
-The optional test suite and example Labs are not included in this checkout.
-They are not required to install or run the application. Keep `schemas/`: the
+The old `tests/` suite and example Labs are not included in this checkout;
+historical documentation referring to them is not a runnable verification guide.
+Maintained isolated checks remain in `tools/check_*.py` and `ui/studio/testing/`;
+see `tools/README.md`. They are not required to install or run the application. Keep `schemas/`: the
 engine uses it to validate Lab definitions and exposes it to the editor.
 
 ## Install On Another Machine
@@ -66,12 +68,38 @@ omit `--enable-quickshell-repo`: use `bash install.sh --plan`, then
 
 The script requests sudo, detects the calling desktop user, builds the app as
 that unprivileged user and installs the Python runtime, System D-Bus policy,
-`cyberlabd` service, CLI and application-menu shortcut. Quickshell, Qt, Docker
-and Konsole come from the target distribution's enabled package repositories;
+`cyberlabd` service, CLI and application-menu shortcut. Quickshell, Qt and Docker
+come from the target distribution's enabled package repositories;
 the installer does not download an AppImage.
+Existing native terminals are reused; Konsole is not required. Only when no
+compatible terminal is found does a dependency installation propose
+`xfce4-terminal` as fallback. Studio's Settings > Terminal and
+`cyberlab terminal-apps --set auto|ID` share a per-user preference; see
+`docs/terminal-windows.md`. Check/update/no-deps never install a terminal.
 It creates an empty `~/CyberLab-labs` only when absent, preserves an existing
 catalog and does not copy example Labs. It preloads the approved BusyBox base
 image; other Lab images must be prepared and allowed separately.
+
+For administrator-enabled Ubuntu workstation Labs, the installer also provides
+the host-side `xpra` client. CyberLab installs the isolated application-display
+packages inside the selected Lab machine only after confirmation through
+**Ứng dụng**. Run an installed GUI application in that machine's terminal to
+show its own window, not an entire VNC desktop. The client runs automatically;
+there is no viewer to configure manually. CyberLab does not install
+Firefox/Wireshark or a desktop environment on the host. Previously installed
+TigerVNC packages are not removed automatically. See `docs/ubuntu-workstations.md`.
+
+Linux GUI compatibility is capability-based, not a DE/WM allowlist. Run
+`cyberlab gui-status` as the desktop user to check the local Xpra client and
+actual X11/XWayland display connection without contacting the daemon. Wayland
+hosts need working XWayland (Niri uses xwayland-satellite); a missing display
+does not disable terminal practice or require changing desktop environments.
+
+On a verified local Xorg session, Auto can use native X11. Wayland always uses
+Xpra, even when XWayland provides `DISPLAY`. Native X11 shares the host X
+server and is less isolated; choose **Luôn dùng Xpra** for stronger display
+isolation. See `docs/native-x11-safety.md` for the authorization lifecycle and
+the isolated safety checks.
 
 The installer has adapters for Arch-based systems (`pacman`), Debian/Ubuntu
 and derivatives (`apt`), Fedora (`dnf`) and openSUSE (`zypper`). The host needs
@@ -153,6 +181,11 @@ historical upgrade details are in `docs/install-mvp.md`; do not rerun an initial
 installer on an existing installation without reviewing the current state.
 
 ## Repository Hygiene
+
+The current Lab folder layout and its matching Studio creation workflow are
+defined in `docs/lab-authoring.md` under **Studio authoring contract**. Startup
+scripts are optional and can be written or imported from each machine's Startup
+tab; authors do not need to create those files or wire commands outside Studio.
 
 `tools/` now contains only the maintained installation/development helpers and
 explicit Lab/image validation tools; see `tools/README.md`.

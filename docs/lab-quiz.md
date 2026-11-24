@@ -20,6 +20,12 @@ Opening or submitting never starts Docker or reserves a Session. Question text
 is plain text; metadata excludes answer keys and feedback until submission.
 Every allowed user can use this workflow; it adds no instructor/student roles.
 
+New Quiz groups (including the first group in an otherwise empty draft) default
+to preparation before practice. Existing non-empty legacy quizzes retain their
+optional behavior; opening the editor never changes that choice. Authoring keeps
+the question, options, correct answer and explanation visible, with identifiers,
+conditional questions and custom responses under Advanced.
+
 When a Lab declares preparation questions, Start opens only the preparation
 groups before the parameter dialog. Continue requires a saved, completed
 preparation attempt. An edit invalidates the displayed completion until it is
@@ -33,6 +39,14 @@ local concept practice, not a pass-score gate or anti-cheating mechanism.
 Prefaces alone do not gate Start. Optional later groups need not be completed.
 `passed` continues to mean all graded questions are correct; `completed` and
 `pre_start_completed` are separate flags.
+
+After submission, answered graded questions include a zero-based `correct_answer`
+in their feedback. Studio shows the correct option and explanation, then enables
+`Vào thực hành` when preparation is complete. No automatic start occurs on submit;
+unanswered and prerequisite-skipped questions do not reveal a correct answer.
+Public question metadata still excludes keys. Reading a saved matching Lab attempt
+re-evaluates its answers for review, including attempts saved before this feedback
+field existed; it does not rewrite stored attempts or another owner's data.
 
 ## Shared API
 
@@ -89,6 +103,18 @@ Library attempt. These operations are not a new Lab start. Runtime readiness
 checks for authors continue to validate containers without a learner quiz gate.
 
 ## Verification
+
+Current executable checks (temporary catalogs only):
+
+- `tools/check_assessment_quiz.py`: incomplete answers block runtime creation;
+  wrong-but-complete answers start, saved feedback, exact revisions and owners.
+- `tools/check_notifications.py --suite quiz`: review, explicit start, edits,
+  cancellation/late callbacks and narrow dialog layout.
+- `tools/check_notifications.py --suite editor --native`: authoring defaults,
+  primary tabs, compact layouts and legacy declaration preservation.
+
+The historical `tests/` suites listed below are absent from this checkout and
+are not claimed as part of this update's verification:
 
 - `tests/test_lab_quiz.py`: completion vs correctness, prerequisites, ungraded
   questions, owner isolation, exact revisions, quota rollback, migration, restart,

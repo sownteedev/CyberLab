@@ -56,6 +56,63 @@ Studio's package picker uses that API, checks the daemon capability and preserve
 unsaved editor work. It does not execute source scripts, build images or publish
 the imported Lab.
 
+### Compatibility inspection (October 30, 2026)
+
+`cyberlab inspect-labtainer SOURCE` returns a bounded JSON compatibility report
+through `InspectLabtainer` on the same daemon API. It accepts the same optional
+`--as` and `--title` as import, but never creates a draft, builds an image or
+starts a Session. Exit status zero means the inspection completed; check
+`can_import` in the JSON, not the exit status, to determine convertibility.
+`runtime_ready` is always false: conversion is not runtime acceptance.
+
+Studio checks this report before importing Labtainer packages when the daemon
+advertises `labtainer-inspect`. Blockers appear in a scrollable dialog with
+Vietnamese explanations and bounded source locations, not a transient generic
+`Invalid request values` toast. Native `.cyberlab` imports are unchanged. Older
+daemons retain their strict import path. If editing changes during inspection,
+Studio cancels the pending import rather than replacing editor work.
+
+The preflight groups X11, system provisioning, lifecycle hooks, instructor
+scripts and explicit privileged-container requests. Dockerfiles remain a
+runtime-review warning, not build permission. Known blockers stop conversion
+before creating any draft; the report is not an exhaustive audit of all source
+semantics. When preflight passes, the full existing converter, schema and package
+limits are checked as well. Public reports never include script bodies or
+directive values. Unexpected backend errors are still redacted.
+
+X11 is a request for graphical applications, not another name for an Ubuntu
+container or a requirement of every Labtainer exercise. This change does NOT
+implement X11 forwarding, change Docker isolation, share the host display, or
+silently ignore `X11 YES`. Removing that flag does not convert system setup or
+grading hooks. Full graphical compatibility still requires a reviewed isolated
+display design and runtime implementation.
+
+The inspected `users` archive requests X11 and includes `_system`, `_bin`,
+instructor scripts and a Dockerfile. It remains blocked, not runnable under
+CyberLab. `shared` is its declared container name, not an implicit directory
+whose contents should be copied to every machine. A future compatible version
+needs reviewed provisioning and assessment semantics in addition to deciding
+whether its actual exercise needs GUI applications. No user archive or catalog
+was modified for this check.
+
+`config/keywords.txt` is now accepted as bounded UTF-8 metadata and preserved
+separately at `assets/docs/labtainer-keywords.txt`. It does not change execution,
+create tags automatically, or overwrite `docs/keywords.txt`. Ordinary files
+under a declared container directory still map only to that container's home.
+
+Isolated regression commands available in this checkout:
+
+```sh
+/usr/lib/cyberlab/venv/bin/python -B tools/check_labtainer_compatibility.py
+python3 -B tools/check_notifications.py --suite labtainer
+```
+
+The backend check uses a private D-Bus daemon, MemoryRuntime and temporary
+catalog/draft state. The UI check runs offscreen with temporary preferences and
+tracked process cleanup. Neither test uses the production catalog. Source tests
+do not imply that the installed app has been updated; guarded deployment still
+requires every allowed user's Sessions to be STOPPED and editor work preserved.
+
 The archive boundary permits at most 32 MiB compressed input, 32 MiB file
 content and 512 entries; the decompressed TAR stream, including metadata and
 padding, is additionally bounded. Paths, links, special files, duplicate entries,

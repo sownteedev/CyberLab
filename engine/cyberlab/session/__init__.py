@@ -33,12 +33,12 @@ class Session:
 
     def transition(self, state: SessionState, error: str = "") -> "Session":
         allowed = {
-            SessionState.PREPARING: {SessionState.RUNNING, SessionState.FAILED},
+            SessionState.PREPARING: {SessionState.RUNNING, SessionState.FAILED, SessionState.STOPPING},
             SessionState.RUNNING: {SessionState.STOPPING, SessionState.RESETTING, SessionState.FAILED, SessionState.SUSPENDED},
             SessionState.STOPPING: {SessionState.STOPPED, SessionState.FAILED},
             SessionState.STOPPED: {SessionState.RESETTING, SessionState.PREPARING},
             SessionState.SUSPENDED: {SessionState.PREPARING, SessionState.RESETTING, SessionState.STOPPING, SessionState.STOPPED, SessionState.FAILED},
-            SessionState.RESETTING: {SessionState.RUNNING, SessionState.FAILED},
+            SessionState.RESETTING: {SessionState.RUNNING, SessionState.FAILED, SessionState.STOPPING},
             SessionState.FAILED: {SessionState.STOPPING, SessionState.RESETTING},
         }
         if state not in allowed[self.state]:

@@ -1,4 +1,5 @@
 //@ pragma UseQApplication
+//@ pragma AppId cyberlab-studio
 //@ pragma Env QT_QPA_PLATFORMTHEME=generic
 //@ pragma Env QS_NO_RELOAD_POPUP=1
 //@ pragma DefaultEnv QSG_RENDER_LOOP=threaded
@@ -11,25 +12,51 @@ import Quickshell
 
 ShellRoot {
     id: root
+
     readonly property bool smoke: Quickshell.env("CYBERLAB_STUDIO_SMOKE") === "1"
 
-    Backend { id: serviceApi }
-    StudioState { id: studioState; api: serviceApi; smoke: root.smoke }
-    StudioWindow { id: mainWindow; api: serviceApi; controller: studioState; smoke: root.smoke }
-    Loader { active: !root.smoke; sourceComponent: Component { AppearanceStore {} } }
+    Backend {
+        id: serviceApi
+    }
+    StudioState {
+        id: studioState
+
+        api: serviceApi
+        smoke: root.smoke
+    }
+    StudioWindow {
+        id: mainWindow
+        onCloseAccepted: serviceApi.clearEditing(() => Qt.quit())
+
+        api: serviceApi
+        controller: studioState
+        smoke: root.smoke
+    }
+    Loader {
+        active: !root.smoke
+
+        sourceComponent: Component {
+            AppearanceStore {
+            }
+        }
+    }
     StudioSmoke {
         active: root.smoke
-        controller: studioState
         api: serviceApi
-        editor: mainWindow.editor
-        capture: mainWindow.capture
         appearanceLoader: mainWindow.appearanceLoader
+        capture: mainWindow.capture
+        controller: studioState
+        editor: mainWindow.editor
+        studioWindow: mainWindow
+
         onSettingsRequested: mainWindow.openSettings()
     }
     Timer {
         interval: 5000
-        running: !root.smoke
         repeat: true
-        onTriggered: if (!mainWindow.confirmationOpened) studioState.poll()
+        running: !root.smoke
+
+        onTriggered: if (!mainWindow.confirmationOpened)
+            studioState.poll()
     }
 }

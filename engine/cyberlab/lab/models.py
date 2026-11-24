@@ -6,6 +6,8 @@ class LabMetadata:
     id: str
     name: str
     version: str
+    tags: tuple[str, ...] = ()
+    difficulty: str | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,51 @@ class NodeResources:
     cpu_millicores: int = 500
 
 @dataclass(frozen=True)
+class NodeSoftware:
+    gui: bool = False
+    apps: tuple[str, ...] = ()
+    packages: tuple[str, ...] = ()
+    environment: str = ""
+
+@dataclass(frozen=True)
+class SetupGroup:
+    name: str
+    gid: int
+
+@dataclass(frozen=True)
+class SetupUser:
+    name: str
+    uid: int
+    gid: int
+    groups: tuple[str, ...] = ()
+    sudo: str = "disabled"
+    password_hash: str = "!"
+
+@dataclass(frozen=True)
+class SetupFile:
+    source: str
+    target: str
+    owner: str = "root"
+    group: str = "root"
+    mode: str = "0644"
+
+@dataclass(frozen=True)
+class HomePermission:
+    path: str
+    owner: str
+    group: str
+    mode: str
+
+@dataclass(frozen=True)
+class NodeSetup:
+    users: tuple[SetupUser, ...] = ()
+    groups: tuple[SetupGroup, ...] = ()
+    files: tuple[SetupFile, ...] = ()
+    home: tuple[HomePermission, ...] = ()
+    sudo: str = "passwordless"
+    password_hash: str = ""
+
+@dataclass(frozen=True)
 class Node:
     id: str
     networks: tuple[str, ...]
@@ -52,6 +99,9 @@ class Node:
     extra_hosts: tuple[tuple[str, str], ...] = ()
     clone: int = 1
     clone_index: int | None = None
+    software: NodeSoftware = NodeSoftware()
+    setup: NodeSetup | None = None
+    system_seed: tuple[SeedEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +109,7 @@ class Network:
     id: str
     subnet: str | None = None
     gateway: str | None = None
+    internet: bool = False
 
 
 @dataclass(frozen=True)
@@ -117,6 +168,7 @@ class AssessmentResult:
     field_id: str | int | None = None
     line_type: str | None = None
     line_id: str | int | None = None
+    timestamp_type: str | None = None
 
 @dataclass(frozen=True)
 class AssessmentGoal:

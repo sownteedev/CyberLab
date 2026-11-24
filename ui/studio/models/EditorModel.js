@@ -1,9 +1,17 @@
 .pragma library
 .import "LabeditModel.js" as Labedit
 .import "AssessmentModel.js" as Assessment
+.import "StartupModel.js" as Startup
 
 function clone(document) {
     return JSON.parse(JSON.stringify(document));
+}
+
+function networkInternet(document, network) {
+    if (!document || !network) return false;
+    if (typeof network.internet === "boolean") return network.internet;
+    return document.nodes.some(node => node.image === "cyberlab/ubuntu:24.04-1"
+        && node.networks.length && node.networks[0] === network.id);
 }
 
 function identifier(value, entries, previous) {
@@ -154,24 +162,64 @@ function draftLabel(entry) {
     return title + identity + " · " + entry.id.substring(0, 8);
 }
 
-function homeUpload(document, nodeId, name, folder, subfolder, assets) {
+function homeUpload(document, nodeId, name, folder, subfolder, assets, finalize) {
     const node = document.nodes.find(entry => entry.id === nodeId);
     if (!node) throw new Error("Chọn máy nhận file.");
     if (subfolder && !safePath(subfolder)) throw new Error("Thư mục con không hợp lệ; không dùng đường dẫn tuyệt đối hoặc ..");
     if (!folder && (!safePath(name) || name.includes("/"))) throw new Error("Tên file không hợp lệ. Đổi tên file trước khi thêm.");
+    const targetPath = subfolder ? subfolder + (folder ? "" : "/" + name) : folder ? "" : name;
+    const startup = Startup.script(node, assets || []);
+    if (startup && targetPath && pathsOverlap(targetPath, startup.target))
+        throw new Error("Sửa script của máy ở mục Khởi động.");
+    const existing = targetPath && (node.files || []).find(mapping => mapping.target !== "."
+        && (targetPath === mapping.target || targetPath.startsWith(mapping.target + "/")));
+    if (existing) {
+        const logical = existing.source + targetPath.substring(existing.target.length);
+        if (!safePath(logical)) throw new Error("Đường dẫn tài nguyên không hợp lệ.");
+        if ((document.documentation && pathsOverlap(logical, document.documentation)) || document.nodes.some(other =>
+            (other.files || []).some(mapping => mapping !== existing && pathsOverlap(logical, mapping.source))))
+            throw new Error("File đang dùng chung. Chọn tên hoặc thư mục con khác.");
+        return {document: clone(document), logical: logical, destination: workspace(node) + "/" + targetPath};
+    }
     const rootMapping = (node.files || []).find(entry => entry.target === ".");
-    const source = rootMapping ? rootMapping.source : "assets/" + nodeId;
+    const source = rootMapping ? rootMapping.source : "assets/files/" + nodeId;
     if (pathsOverlap(source, "assets/docs") || (document.documentation && pathsOverlap(source, document.documentation)))
         throw new Error("Nguồn chứa tài liệu hướng dẫn. Chọn thư mục tài nguyên riêng cho máy ở mục ánh xạ nâng cao.");
     if (document.nodes.some(other => other.id !== nodeId && (other.files || []).some(mapping => pathsOverlap(source, mapping.source))))
         throw new Error("Nguồn đang dùng chung với máy khác. Chọn thư mục tài nguyên riêng trước khi upload vào máy này.");
     if (assets && assets.some(asset => asset.kind !== "directory" && (asset.path === source || source.startsWith(asset.path + "/"))))
         throw new Error("Nguồn ánh xạ phải là thư mục, không phải file.");
-    if (!rootMapping && assets && assets.some(asset => asset.path.startsWith(source + "/")))
-        throw new Error("Thư mục nguồn đã có tài nguyên. Xem lại rồi gắn ánh xạ vào home ở mục nâng cao, tránh tự nhập file cũ.");
-    const definition = rootMapping ? clone(document) : addMapping(document, nodeId, source, ".");
     const suffix = (subfolder ? "/" + subfolder : "") + (folder ? "" : "/" + name);
     if (!safePath(source + suffix)) throw new Error("Đường dẫn tài nguyên vượt giới hạn hoặc không hợp lệ.");
+    let definition = clone(document);
+    if (!rootMapping && !(node.files || []).length) {
+        if (!finalize && assets && assets.some(asset => asset.path.startsWith(source + "/")))
+            throw new Error("Thư mục nguồn đã có file chưa gắn với máy. Chọn tên máy khác để tránh nhập nhầm.");
+        definition = addMapping(document, nodeId, source, ".");
+    } else if (!rootMapping) {
+        const target = subfolder ? subfolder + (folder ? "" : "/" + name) : folder ? "" : name;
+        const targets = target ? [target] : [];
+        if (!target && finalize) {
+            (assets || []).filter(asset => asset.path.startsWith(source + "/")).forEach(asset => {
+                const child = asset.path.substring(source.length + 1).split("/")[0];
+                if (!targets.includes(child)) targets.push(child);
+            });
+        }
+        if (!target && !finalize && assets && assets.some(asset => asset.path.startsWith(source + "/")
+            && !(node.files || []).some(mapping => asset.path === mapping.source || asset.path.startsWith(mapping.source + "/"))))
+            throw new Error("Thư mục nguồn còn file chưa gắn với máy. Chọn thư mục con khi nhập.");
+        targets.forEach(destination => {
+            const covered = (node.files || []).some(mapping =>
+                (destination === mapping.target || destination.startsWith(mapping.target + "/"))
+                && mapping.source + destination.substring(mapping.target.length) === source + "/" + destination);
+            if (!covered) {
+                const receiver = definition.nodes.find(entry => entry.id === nodeId);
+                receiver.files = (receiver.files || []).filter(mapping => !(mapping.target.startsWith(destination + "/")
+                    && mapping.source === source + "/" + mapping.target));
+                definition = addMapping(definition, nodeId, source + "/" + destination, destination);
+            }
+        });
+    }
     return {document: definition, logical: source + suffix, destination: workspace(node) + suffix};
 }
 
@@ -183,6 +231,9 @@ function previewFiles(node, assets) {
             if (mapping.target !== ".") entries.push({path: mapping.target, isImport: false, size: exact.size});
             return;
         }
+        if (exact && exact.kind === "directory" && mapping.target !== "."
+                && !assets.some(asset => asset.path.startsWith(mapping.source + "/")))
+            entries.push({path: mapping.target + "/", isImport: false, size: 0});
         assets.filter(asset => asset.path.startsWith(mapping.source + "/")).forEach(asset => {
             const relative = asset.path.substring(mapping.source.length + 1);
             entries.push({path: (mapping.target === "." ? relative : mapping.target + "/" + relative) + (asset.kind === "directory" ? "/" : ""),
@@ -196,20 +247,49 @@ function removeSeedFile(document, nodeId, path, assets) {
     const copy = clone(document);
     const node = copy.nodes.find(entry => entry.id === nodeId);
     if (!node || !safePath(path)) throw new Error("File không còn tồn tại.");
+    const startup = Startup.script(node, assets);
+    if (startup && (path === startup.target || startup.target.startsWith(path + "/")))
+        throw new Error("File đang dùng để khởi động máy. Đổi ở mục Khởi động trước khi xóa.");
     let source = "";
+    let matchedMapping = null;
     (node.files || []).forEach(mapping => {
         const exact = assets.find(asset => asset.path === mapping.source && asset.kind !== "directory");
-        if (exact && mapping.target === path) source = mapping.source;
+        if (exact && mapping.target === path) {
+            source = mapping.source;
+            matchedMapping = mapping;
+        }
         else if (!exact && (mapping.target === "." || path.startsWith(mapping.target + "/"))) {
             const relative = mapping.target === "." ? path : path.substring(mapping.target.length + 1);
             const candidate = mapping.source + "/" + relative;
-            if (assets.some(asset => asset.path === candidate && asset.kind !== "directory")) source = candidate;
+            if (assets.some(asset => asset.path === candidate && asset.kind !== "directory")) {
+                source = candidate;
+                matchedMapping = mapping;
+            }
         }
     });
     if (!source) throw new Error("Chọn một file trong máy.");
-    if (document.documentation === source || copy.nodes.some(other => other.id !== nodeId && (other.files || []).some(mapping =>
-        mapping.source === source || source.startsWith(mapping.source + "/"))))
-        throw new Error("File đang dùng chung. Bỏ ánh xạ riêng ở Nâng cao, không xóa tài nguyên dùng chung.");
+    const shared = document.documentation === source || copy.nodes.some(other => (other.files || []).some(mapping =>
+        mapping !== matchedMapping && (mapping.source === source || source.startsWith(mapping.source + "/"))));
+    if (shared) {
+        const replacement = [];
+        function keepExceptRemoved(branch, target) {
+            const children = Array.from(new Set(assets.filter(asset => asset.path.startsWith(branch + "/"))
+                .map(asset => asset.path.substring(branch.length + 1).split("/")[0])));
+            children.forEach(name => {
+                const childSource = branch + "/" + name;
+                const childTarget = target === "." ? name : target + "/" + name;
+                if (childSource === source) return;
+                if (source.startsWith(childSource + "/")) keepExceptRemoved(childSource, childTarget);
+                else replacement.push(Object.assign({}, matchedMapping, {source: childSource, target: childTarget}));
+            });
+        }
+        if (matchedMapping.source !== source)
+            keepExceptRemoved(matchedMapping.source, matchedMapping.target);
+        node.files = node.files.reduce((mappings, mapping) => mappings.concat(mapping === matchedMapping ? replacement : [mapping]), []);
+        if (node.files.length > 16)
+            throw new Error("Chưa thể bỏ riêng file này: thư mục dùng chung có quá nhiều mục. Chưa thay đổi file nào.");
+        return {document: copy, source: "", detached: true};
+    }
     const remaining = assets.filter(asset => asset.path !== source);
     node.files = (node.files || []).filter(mapping =>
         !(mapping.source === source || source.startsWith(mapping.source + "/"))
@@ -288,13 +368,13 @@ function removeEntry(document, section, index) {
 
 function quizGroups(document) {
     if (Array.isArray(document.quizzes)) return document.quizzes;
-    return [{id: "default", title: "", items: Array.isArray(document.quiz) ? document.quiz : []}];
+    return [{id: "default", title: "", pre_start: !(document.quiz || []).length, items: Array.isArray(document.quiz) ? document.quiz : []}];
 }
 
 function migrateQuizGroups(document) {
     const copy = clone(document);
     if (!Array.isArray(copy.quizzes)) {
-        copy.quizzes = [{id: "default", title: "", items: Array.isArray(copy.quiz) ? copy.quiz : []}];
+        copy.quizzes = quizGroups(copy);
         delete copy.quiz;
     }
     return copy;

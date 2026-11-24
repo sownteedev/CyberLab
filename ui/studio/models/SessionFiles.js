@@ -65,24 +65,28 @@ function treeRows(files) {
         });
     }
     const rows = [];
-    function appendChildren(parent, prefix) {
+    function appendChildren(parent, prefix, depth, guides) {
         parent.children.sort((first, second) =>
             Number(second.isDirectory) - Number(first.isDirectory) || first.name.localeCompare(second.name));
+        const count = parent.children.length;
         parent.children.forEach((entry, index) => {
-            const last = index === parent.children.length - 1;
+            const last = index === count - 1;
             rows.push({
                 name: entry.name + (entry.isDirectory && entry.name !== "/" ? "/" : ""),
                 path: entry.path,
                 kind: entry.kind,
                 live: entry.live,
+                depth: depth,
+                isLast: last,
+                guides: guides.slice(),
                 branch: prefix + (last ? "└── " : "├── "),
                 isDirectory: entry.isDirectory,
                 isImport: !entry.isDirectory && entry.isImport,
                 size: entry.isDirectory ? 0 : entry.size
             });
-            appendChildren(entry, prefix + (last ? "    " : "│   "));
+            appendChildren(entry, prefix + (last ? "    " : "│   "), depth + 1, guides.concat(!last));
         });
     }
-    appendChildren(root, "");
+    appendChildren(root, "", 0, []);
     return rows;
 }

@@ -37,4 +37,7 @@ cyberlab_studio = "ui"
 [tool.setuptools.package-data]
 "cyberlab.schemas" = ["v1/*.json"]
 cyberlab_ipc = ["*.xml"]
-cyberlab_studio = ["studio/*.qml", "studio/qmldir", "studio/**/*.qml", "studio/**/*.js", "studio/assets/icons/*.svg", "studio/assets/icons/*.txt", "studio/assets/fonts/*.ttf", "studio/assets/fonts/*.txt"]
+cyberlab_studio = ["studio/*.qml", "studio/qmldir", "studio/**/*.qml", "studio/**/*.js", "studio/**/*.mjs", "studio/vendor/*.txt", "studio/assets/branding/*.svg", "studio/assets/icons/*.svg", "studio/assets/icons/*.txt", "studio/assets/fonts/*.ttf", "studio/assets/fonts/*.txt"]
+
+[tool.setuptools.data-files]
+"share/cyberlab" = ["ui/studio/assets/branding/cyberlab-studio.svg"]

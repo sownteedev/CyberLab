@@ -115,8 +115,10 @@ def _comparison(goal, results):
     operands = [results.get(goal.result)]
     if goal.other:
         operands.append(results.get(goal.other))
-    if any(item is None or item.get("status") not in {"PASS", "FAIL"} for item in operands):
+    if any(item is None or item.get("status") not in {"PASS", "FAIL", "COLLECTED"} for item in operands):
         return "ERROR", "A comparison result could not be evaluated"
+    if any("instances" in item for item in operands):
+        return "ERROR", "Timeline results require temporal goals, which are not supported yet"
     if any(item.get("value") is None for item in operands):
         return "FAIL", "The selected value was not found"
     left = operands[0]["value"]
@@ -180,6 +182,7 @@ def _boolean_evaluation(goal, results, goals_by_id):
         return "ERROR", str(error)
 
 def check_goal(goal, results, goals_by_id=None):
+    conditions = {**results, **(goals_by_id or {})}
     report = {"id": goal.id, "mode": goal.mode, "type": goal.goal_type,
               "results": list(goal.results), "description": goal.description}
     if goal.expression:
@@ -190,7 +193,7 @@ def check_goal(goal, results, goals_by_id=None):
         if goal.operator != "count_greater" or type(goal.threshold) is not int or not 0 <= goal.threshold <= 64:
             status, message = "ERROR", "Invalid count threshold or operator"
         else:
-            statuses = [results.get(identifier, {}).get("status", "ERROR") for identifier in goal.results]
+            statuses = [conditions.get(identifier, {}).get("status", "ERROR") for identifier in goal.results]
             passed = statuses.count("PASS")
             unknown = sum(item not in {"PASS", "FAIL"} for item in statuses)
             status = "PASS" if passed > goal.threshold else "ERROR" if passed + unknown > goal.threshold else "FAIL"
@@ -199,7 +202,7 @@ def check_goal(goal, results, goals_by_id=None):
     elif goal.goal_type == "boolean":
         status, message = _boolean_evaluation(goal, results, goals_by_id or {})
     elif goal.goal_type == "group":
-        status = combined_status([results.get(identifier, {}).get("status", "ERROR") for identifier in goal.results], goal.mode)
+        status = combined_status([conditions.get(identifier, {}).get("status", "ERROR") for identifier in goal.results], goal.mode)
         message = "Results combined using " + goal.mode
     else:
         status, message = "ERROR", "Unsupported goal type"

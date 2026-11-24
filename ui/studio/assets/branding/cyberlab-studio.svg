@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">CyberLab Studio</title>
+  <desc id="desc">A turquoise laboratory flask shaped into a shield, with a terminal prompt on a midnight blue tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="48" y1="24" x2="448" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1c374b"/>
+      <stop offset="1" stop-color="#0a1627"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="160" y1="112" x2="350" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9af8df"/>
+      <stop offset="0.52" stop-color="#4de0cc"/>
+      <stop offset="1" stop-color="#20b5bd"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="20" width="472" height="472" rx="112" fill="#07101c"/>
+  <rect x="20" y="12" width="472" height="472" rx="112" fill="url(#tile)"/>
+  <rect x="22" y="14" width="468" height="468" rx="110" fill="none" stroke="#b8f5ef" stroke-opacity="0.12" stroke-width="4"/>
+  <path d="M216 128h80v74l78 119c11 17 8 37-9 48l-91 57c-11 7-25 7-36 0l-91-57c-17-11-20-31-9-48l78-119z" fill="#061a28" opacity="0.5" transform="translate(0 9)"/>
+  <path d="M216 120h80v74l78 119c11 17 8 37-9 48l-91 57c-11 7-25 7-36 0l-91-57c-17-11-20-31-9-48l78-119z" fill="url(#glass)"/>
+  <rect x="190" y="94" width="132" height="30" rx="15" fill="#b4ffec"/>
+  <path d="M238 124h36v77l-33 50h-42l39-59z" fill="#0c2638"/>
+  <path d="m196 294 29 25-29 25m59 0h44" fill="none" stroke="#0b293c" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="342" cy="181" r="14" fill="#ffcf76"/>
+</svg>

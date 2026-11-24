@@ -11,6 +11,7 @@ import sqlite3
 import stat
 import subprocess
 import tempfile
+import time
 import tomllib
 import zipfile
 
@@ -26,15 +27,35 @@ ENVIRONMENT = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "LANG":
                "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
 
 
-def run(*arguments):
+def run(*arguments, timeout=330):
     return subprocess.run([str(value) for value in arguments], env=ENVIRONMENT,
-                          capture_output=True, text=True, check=True, timeout=330)
+                          capture_output=True, text=True, check=True, timeout=timeout)
 
 
-def cli(uid, *arguments):
+def cli(uid, *arguments, timeout=330):
     account = pwd.getpwuid(uid)
     return json.loads(run("/usr/sbin/runuser", "-u", account.pw_name, "--",
-                          "/usr/local/bin/cyberlab", *arguments).stdout)
+                          "/usr/local/bin/cyberlab", *arguments, timeout=timeout).stdout)
+
+def error_detail(error):
+    detail = getattr(error, 'stderr', None) or getattr(error, 'stdout', None)
+    if isinstance(detail, bytes):
+        detail = detail.decode(errors='replace')
+    return f"{error}\n{detail.strip()[-4000:]}" if detail else str(error)
+
+def wait_for_daemon(uid, timeout=60):
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(f"Daemon API did not become ready: {error_detail(last_error)}") from last_error
+        run("/usr/bin/systemctl", "is-active", "--quiet", SERVICE, timeout=min(5, remaining))
+        try:
+            return cli(uid, "info", timeout=min(5, remaining))
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            last_error = error
+        time.sleep(min(0.5, remaining))
 
 
 def stage_wheel(source, stage, expected):
@@ -80,10 +101,15 @@ def check_admin_path(path):
 
 
 def service_policy_updates():
-    updates = []
+    changes = {}
     for source, destination, key, previous, approved in (
-        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "CapabilityBoundingSet", "", "CAP_CHOWN"),
-        (ROOT / "daemon/systemd/authoring.conf", AUTHORING_DROPIN, "UMask", "0002", "0077"),
+        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "CapabilityBoundingSet", ('', 'CAP_CHOWN'), "CAP_CHOWN CAP_SETUID CAP_SETGID"),
+        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "AmbientCapabilities", (), "CAP_SETUID"),
+        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "BindReadOnlyPaths", (), "-/tmp/.X11-unix"),
+        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "RuntimeDirectory", (), "cyberlab"),
+        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "RuntimeDirectoryMode", (), "0700"),
+        (ROOT / "daemon/systemd/cyberlabd.service", UNIT, "RuntimeDirectoryPreserve", (), "yes"),
+        (ROOT / "daemon/systemd/authoring.conf", AUTHORING_DROPIN, "UMask", ('0002',), "0077"),
     ):
         if not destination.exists():
             raise ValueError(f"Expected existing service file: {destination}")
@@ -93,17 +119,39 @@ def service_policy_updates():
             raise ValueError("Service file must be a bounded regular file")
         if f"{key}={approved}" not in source.read_text().splitlines():
             raise ValueError("Repository service policy differs from the reviewed repair")
-        original = destination.read_bytes()
-        lines = original.decode().splitlines()
+        if destination not in changes:
+            original = destination.read_bytes()
+            changes[destination] = (original, original.decode().splitlines())
+        original, lines = changes[destination]
         matches = [index for index, line in enumerate(lines) if line.strip().startswith(key + "=")]
-        if len(matches) != 1 or lines[matches[0]].strip() not in {f"{key}={previous}", f"{key}={approved}"}:
+        if not matches and not previous:
+            index = lines.index('[Service]') + 1
+            lines.insert(index, f'{key}={approved}')
+            continue
+        if len(matches) != 1 or lines[matches[0]].strip() not in {f"{key}={value}" for value in (*previous, approved)}:
             raise ValueError(f"Custom {key} policy requires administrator review")
         if lines[matches[0]].strip() == f"{key}={approved}":
             continue
         lines[matches[0]] = f"{key}={approved}"
-        updates.append((destination, original, ("\n".join(lines) + "\n").encode()))
-    return updates
+    return [(destination, original, ('\n'.join(lines) + '\n').encode())
+            for destination, (original, lines) in changes.items() if original != ('\n'.join(lines) + '\n').encode()]
 
+
+def verify_service_capabilities():
+    process = run('/usr/bin/systemctl', 'show', SERVICE, '--property=MainPID', '--value').stdout.strip()
+    if not process.isdecimal() or int(process) <= 0:
+        raise RuntimeError('Cannot verify daemon process capabilities')
+    status = dict(line.split(':', 1) for line in Path(f'/proc/{process}/status').read_text().splitlines() if ':' in line)
+    required = (1 << 0) | (1 << 6) | (1 << 7)
+    try:
+        masks = {name: int(status[name].strip(), 16) for name in ('CapPrm', 'CapEff', 'CapBnd', 'CapAmb')}
+        restricted = status['NoNewPrivs'].strip() == '1'
+    except (KeyError, ValueError):
+        raise RuntimeError('Incomplete daemon capability status') from None
+    if (any(masks[name] != required for name in ('CapPrm', 'CapEff', 'CapBnd'))
+            or masks['CapAmb'] not in (0, 1 << 7) or not restricted):
+        raise RuntimeError('Daemon effective capabilities differ from the reviewed native-helper policy')
+    return {name: f'{value:016x}' for name, value in masks.items()}
 
 def replace_file(destination, data, mode):
     descriptor, temporary = tempfile.mkstemp(prefix=".cyberlab-upgrade-", dir=destination.parent)
@@ -159,6 +207,20 @@ def recover_private_state(uid, backup):
     }, indent=2) + "\n")
 
 
+def preserve_stopped_checkpoints(database, sessions):
+    if not sessions:
+        return
+    with sqlite3.connect(database.as_uri() + "?mode=rw", uri=True) as connection:
+        for session in sessions:
+            if session.get("state") != "STOPPED" or not session.get("saved") or not session.get("checkpoint_at"):
+                raise ValueError("Only verified stopped checkpoints can be preserved during upgrade")
+            cursor = connection.execute("""
+                UPDATE saved_sessions SET state='STOPPED', updated_at=?
+                WHERE id=? AND owner=? AND checkpoint_at=?
+            """, (session["updated_at"], session["id"], session["owner_uid"], session["checkpoint_at"]))
+            if cursor.rowcount != 1:
+                raise ValueError("Saved Session changed during upgrade; refuse to rewrite checkpoint state")
+
 def upgrade(wheel, uid, backup, repair_service_policy=False):
     venv = APP / "venv"
     check_admin_path(venv)
@@ -168,12 +230,17 @@ def upgrade(wheel, uid, backup, repair_service_policy=False):
     if uid not in document["allowed_uids"]:
         raise ValueError("Verification user is not allowed by the installed daemon")
     run("/usr/bin/systemctl", "is-active", "--quiet", SERVICE)
-    info = cli(uid, "info")
+    info = wait_for_daemon(uid)
     if "runtime:docker" not in info.get("capabilities", []):
         raise ValueError("Expected the installed System D-Bus Docker daemon")
+    stopped_checkpoints = {}
     for allowed_uid in document["allowed_uids"]:
-        if any(session.get("state") != "STOPPED" for session in cli(allowed_uid, "sessions")):
+        sessions = cli(allowed_uid, "sessions")
+        if any(session.get("state") != "STOPPED" for session in sessions):
             raise ValueError("Save work and stop all Sessions explicitly before upgrading")
+        for session in sessions:
+            if session.get("saved"):
+                stopped_checkpoints[session["id"]] = session
     labs = cli(uid, "labs")
     updates = service_policy_updates() if repair_service_policy else []
     (backup / "daemon.toml").write_bytes(old_config)
@@ -192,6 +259,7 @@ def upgrade(wheel, uid, backup, repair_service_policy=False):
             practice = STATE / "practice.sqlite3"
             if practice.exists():
                 practice.chmod(0o600)
+        preserve_stopped_checkpoints(STATE / "practice.sqlite3", list(stopped_checkpoints.values()))
         for index, (destination, previous, current) in enumerate(updates):
             (backup / f"service-{index}-{destination.name}").write_bytes(previous)
             if destination.read_bytes() != previous:
@@ -206,17 +274,32 @@ def upgrade(wheel, uid, backup, repair_service_policy=False):
             raise RuntimeError("Installed configuration changed during upgrade")
         run("/usr/bin/systemctl", "start", SERVICE)
         run("/usr/bin/systemctl", "is-active", "--quiet", SERVICE)
-        installed = cli(uid, "info")
+        effective_capabilities = verify_service_capabilities() if repair_service_policy else None
+        installed = wait_for_daemon(uid)
         if "runtime:docker" not in installed.get("capabilities", []):
             raise RuntimeError("Updated daemon failed runtime verification")
         after = cli(uid, "labs")
         identity = lambda entries: sorted((entry["id"], entry["name"], entry["version"]) for entry in entries)
         if identity(after) != identity(labs):
             raise RuntimeError("Catalog identity changed during package update")
+        restored_checkpoints = {}
+        for allowed_uid in document["allowed_uids"]:
+            for session in cli(allowed_uid, "sessions"):
+                if session.get("state") != "STOPPED":
+                    raise RuntimeError("Session is no longer stopped after package update")
+                if session.get("saved"):
+                    restored_checkpoints[session["id"]] = session
+        checkpoint_identity = lambda entries: sorted(
+            (entry["id"], entry["owner_uid"], entry["checkpoint_at"], entry["updated_at"])
+            for entry in entries.values())
+        if checkpoint_identity(restored_checkpoints) != checkpoint_identity(stopped_checkpoints):
+            raise RuntimeError("Saved Session identity changed during package update")
         (backup / "verification.json").write_text(json.dumps({
             "wheel": wheel.name, "sha256": sha256(wheel.read_bytes()).hexdigest(),
             "daemon": installed, "catalog_identity_preserved": True,
+            "stopped_checkpoints_preserved": len(stopped_checkpoints),
             "service_policy_repaired": bool(applied), "result": "passed",
+            "service_capabilities": effective_capabilities,
         }, indent=2) + "\n")
     except Exception:
         run("/usr/bin/systemctl", "stop", SERVICE)
@@ -243,7 +326,7 @@ def main():
     parser.add_argument("wheel", type=Path)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--uid", type=int, required=True)
-    parser.add_argument("--repair-service-policy", action="store_true", help="Apply only the reviewed CAP_CHOWN and private-umask fixes to the existing service")
+    parser.add_argument("--repair-service-policy", action="store_true", help="Apply the reviewed private state and native-X11 helper/socket policy to the existing service")
     parser.add_argument("--recover-private-state", action="store_true", help="Recover the confirmed 0644 database startup failure only when no saved Sessions or managed resources remain")
     arguments = parser.parse_args()
     if os.geteuid() != 0 or arguments.uid <= 0:
@@ -262,4 +345,4 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
-        raise SystemExit(f"Upgrade failed: {error}. Preserve the backup; do not blindly retry.")
+        raise SystemExit(f"Upgrade failed: {error_detail(error)}. Preserve the backup; do not blindly retry.")

@@ -7,7 +7,7 @@ function statusText(status) {
 }
 
 function statusIcon(status) {
-    return status === "PASS" || status === "COLLECTED" ? "check_circle"
+    return status === "PASS" ? "check_circle"
         : status === "ERROR" ? "error" : "description";
 }
 

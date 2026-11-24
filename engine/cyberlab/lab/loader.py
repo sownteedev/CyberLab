@@ -10,6 +10,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from cyberlab.assessment_goals import COMPARE_OPERATORS, INTEGER_OPERATORS, HASH_OPERATORS, evaluate_boolean_expression, integer_value
+from cyberlab.result_collection import validate_collection
 
 from .models import (
     Assessment,
@@ -22,6 +23,7 @@ from .models import (
     Network,
     Node,
     NodeResources,
+    NodeSoftware,
     FileMapping,
     NodeUser,
     Documentation,
@@ -31,8 +33,11 @@ from .models import (
 from .documentation import snapshot_documentation, validate_documentation
 from .environment import validate_environment
 from .networking import validate_networking
+from .workstation import UBUNTU_IMAGE
 from .assets import AssetError, snapshot_lab, validate_mappings
 from .dependencies import validate_node_dependencies
+from .software import validate_software
+from .setup import parse_setup, validate_setup
 
 
 MAX_DEFINITION_BYTES = 1024 * 1024
@@ -432,13 +437,23 @@ def validate_lab(document: object) -> Lab:
                 raise LabValidationError(f"Unsafe assessment workspace path at /assessment/{collection_name}/{index}/path")
     for index, result in enumerate(results):
         operator = result["operator"]
+        if operator == "collect":
+            try:
+                validate_collection(result)
+            except ValueError as error:
+                raise LabValidationError(f"{error} at /assessment/results/{index}") from error
+            continue
+        if result.get("timestamp_type") is not None:
+            raise LabValidationError(f"Timestamp selector requires collect at /assessment/results/{index}")
         expected = result.get("expected")
         field_type = result.get("field_type")
         field_id = result.get("field_id")
         line_type = result.get("line_type")
         line_id = result.get("line_id")
-        if operator != "exists" and expected is None:
+        if operator not in {"exists", "extract"} and expected is None:
             raise LabValidationError(f"Assessment result requires expected at /assessment/results/{index}/expected")
+        if operator == "extract" and "expected" in result:
+            raise LabValidationError(f"Extraction result cannot define expected at /assessment/results/{index}/expected")
         if operator in {"size_less_than", "size_equals", "line_count_equals", "string_count_equals"} and (isinstance(expected, bool) or not isinstance(expected, int)):
             raise LabValidationError(f"{operator} requires an integer expected value at /assessment/results/{index}/expected")
         if operator == "sha256_equals" and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected)):
@@ -449,9 +464,11 @@ def validate_lab(document: object) -> Lab:
             raise LabValidationError(f"Assessment result expected value must be text at /assessment/results/{index}/expected")
         if operator == "string_count_equals" and (not isinstance(result.get("field_id"), str) or not result["field_id"]):
             raise LabValidationError(f"string_count_equals requires a non-empty field_id at /assessment/results/{index}/field_id")
-        if operator == "field_equals":
+        if operator in {"field_equals", "extract"}:
+            if field_type not in {"token", "parens", "quotes", "slash", "group"} or line_type == "none":
+                raise LabValidationError(f"This field or line type requires collect at /assessment/results/{index}")
             if field_type is None or field_id is None or line_type is None or line_id is None:
-                raise LabValidationError(f"field_equals requires field and line selectors at /assessment/results/{index}")
+                raise LabValidationError(f"{operator} requires field and line selectors at /assessment/results/{index}")
             if field_type == "group" and line_type != "regex":
                 raise LabValidationError(f"group field requires a regex line selector at /assessment/results/{index}")
             if field_type == "group" and (isinstance(field_id, bool) or not isinstance(field_id, int) or not 0 <= field_id <= 32):
@@ -459,7 +476,7 @@ def validate_lab(document: object) -> Lab:
             if field_type != "group" and field_id not in {"ALL", "LAST"} and (isinstance(field_id, bool) or not isinstance(field_id, int) or field_id < 1):
                 raise LabValidationError(f"field_id must be a positive integer, ALL or LAST at /assessment/results/{index}")
         elif any(value is not None for value in (field_type, line_type, line_id)) or (operator != "string_count_equals" and field_id is not None):
-            raise LabValidationError(f"Field and line selectors are only valid with field_equals at /assessment/results/{index}")
+            raise LabValidationError(f"Field and line selectors require field_equals or extract at /assessment/results/{index}")
         if line_type == "line" and (isinstance(line_id, bool) or not isinstance(line_id, int)):
             raise LabValidationError(f"line selector requires an integer line_id at /assessment/results/{index}")
         if line_type != "line" and line_id is not None and not isinstance(line_id, str):
@@ -554,17 +571,23 @@ def validate_lab(document: object) -> Lab:
                 hostname = PARAMETER_TOKEN.sub("param", hostname)
             validate_environment(hostname, NodeUser(**node["user"]) if "user" in node else None)
             validate_mappings(tuple(FileMapping(**mapping) for mapping in node.get("files", [])))
+            software = node.get("software", {})
+            validate_software(NodeSoftware(software.get("gui", False), tuple(software.get("apps", [])), tuple(software.get("packages", [])), software.get("environment", "")), node.get("image"))
+            validate_setup(Node(id=node['id'], networks=(), image=node.get('image'),
+                                user=NodeUser(**node['user']) if 'user' in node else None,
+                                setup=parse_setup(node.get('setup'))))
         except (AssetError, ValueError) as error:
             raise LabValidationError(str(error)) from None
 
     lab = Lab(
         api_version=document["apiVersion"],
-        metadata=LabMetadata(**document["metadata"]),
+        metadata=LabMetadata(**{**document["metadata"], "tags": tuple(document["metadata"].get("tags", []))}),
         nodes=tuple(
             Node(
                 id=node["id"], networks=tuple(node["networks"]),
                 image=node.get("image"), command=tuple(node.get("command", [])),
                 files=tuple(FileMapping(**mapping) for mapping in node.get("files", [])),
+                setup=parse_setup(node.get('setup')),
                 hostname=node.get("hostname"),
                 user=NodeUser(**node["user"]) if "user" in node else None,
                 addresses=tuple(sorted(node.get("addresses", {}).items())),
@@ -575,10 +598,17 @@ def validate_lab(document: object) -> Lab:
                 extra_hosts=tuple(sorted(node.get("extra_hosts", {}).items())),
                 clone=node.get("clone", 1),
                 clone_index=node.get("clone_index"),
+                software=NodeSoftware(node.get("software", {}).get("gui", False), tuple(node.get("software", {}).get("apps", [])), tuple(node.get("software", {}).get("packages", [])), node.get("software", {}).get("environment", "")),
             )
             for node in document["nodes"]
         ),
-        networks=tuple(Network(**network) for network in document["networks"]),
+        networks=tuple(Network(**{
+            **network,
+            "internet": network.get("internet", any(
+                node.get("image") == UBUNTU_IMAGE and node["networks"][:1] == [network["id"]]
+                for node in document["nodes"]
+            )),
+        }) for network in document["networks"]),
         terminals=tuple(document.get("terminals", [])),
         documentation=documentation,
         settings=LabSettings(
@@ -620,6 +650,7 @@ def validate_lab(document: object) -> Lab:
                     hint=result.get("hint", ""),
                     field_type=result.get("field_type"), field_id=result.get("field_id"),
                     line_type=result.get("line_type"), line_id=result.get("line_id"),
+                    timestamp_type=result.get("timestamp_type"),
                 )
                 for result in results
             ),

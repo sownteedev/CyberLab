@@ -14,6 +14,8 @@ def validate_networking(lab):
     networks = {network.id: network for network in lab.networks}
     subnets = {}
     for network in lab.networks:
+        if type(network.internet) is not bool:
+            raise ValueError("Network internet access must be a boolean")
         if network.subnet is None:
             if network.gateway is not None:
                 raise ValueError("A bridge gateway requires an explicit subnet")
@@ -37,10 +39,11 @@ def validate_networking(lab):
                 raise ValueError("Extra host names must be safe DNS labels")
             if not any(IPv4Address(address) in private for private in PRIVATE_NETWORKS):
                 raise ValueError("Extra host addresses must be RFC1918 IPv4 addresses")
-        if not 64 <= node.resources.memory_mb <= 512:
-            raise ValueError("Node memory must be between 64 and 512 MiB")
-        if not 100 <= node.resources.cpu_millicores <= 1000:
-            raise ValueError("Node CPU must be between 100 and 1000 millicores")
+        workstation = node.image == "cyberlab/ubuntu:24.04-1"
+        if not 64 <= node.resources.memory_mb <= (2048 if workstation else 512):
+            raise ValueError("Node memory exceeds its environment resource limit")
+        if not 100 <= node.resources.cpu_millicores <= (2000 if workstation else 1000):
+            raise ValueError("Node CPU exceeds its environment resource limit")
         if type(node.terminal_count) is not int or not 1 <= node.terminal_count <= 4:
             raise ValueError("Each node supports 1 through 4 terminal slots")
         addresses = dict(node.addresses)

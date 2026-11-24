@@ -52,6 +52,8 @@ def evaluate_quiz(items, answers):
             feedback = (question.right_response if status == "CORRECT" else question.wrong_response) or question.explanation
         detail = {"id": question.id, "type": question.item_type, "quiz_id": question.quiz_id,
                   "status": status, "selected": selected, "explanation": feedback}
+        if selected is not None and status in {"CORRECT", "INCORRECT"}:
+            detail["correct_answer"] = question.answer
         if question.prerequisite:
             detail["prerequisite"] = question.prerequisite
         details.append(detail)

@@ -3,50 +3,87 @@ import QtQuick.Controls.Material
 import QtQuick.Layouts
 import "../.."
 import "../.." as Studio
+import "../../models/EditorModel.js" as Model
 
 ColumnLayout {
     id: panel
+
     required property var editor
-    required property int networkIndex
     property var network: editor.document && editor.document.networks[networkIndex] ? editor.document.networks[networkIndex] : null
-    spacing: Studio.Theme.space16
+    required property int networkIndex
+    property bool advanced: false
+    onNetworkIndexChanged: advanced = false
+
     enabled: !editor.backend.busy
-    Label { text: "Mạng nội bộ"; font.bold: true }
-    Label { text: "Mã mạng" }
-    StudioTextField { Layout.fillWidth: true; text: panel.network ? panel.network.id : ""; onEditingFinished: panel.editor.change("networks", panel.networkIndex, "id", text) }
-    Label { text: "Subnet IPv4" }
-    StudioTextField { Layout.fillWidth: true; text: panel.network ? panel.network.subnet || "" : ""; placeholderText: "Để trống: tự động · ví dụ 10.231.20.0/24"; onEditingFinished: panel.editor.change("networks", panel.networkIndex, "subnet", text.trim()) }
+    spacing: Studio.Theme.space16
+
+    Label {
+        text: "Tên mạng"
+        color: Studio.Theme.textOnSurface
+    }
+    StudioTextField {
+        Layout.fillWidth: true
+        Accessible.name: "Tên mạng"
+        objectName: "draftNetworkId"
+        text: panel.network ? panel.network.id : ""
+
+        onEditingFinished: panel.editor.change("networks", panel.networkIndex, "id", text)
+    }
+    Studio.StudioToggle {
+        Layout.fillWidth: true
+        objectName: "draftNetworkInternet"
+        text: "Internet"
+        visible: !!panel.editor.policy && !!panel.editor.policy.network_internet
+        checked: Model.networkInternet(panel.editor.document, panel.network)
+        onToggled: panel.editor.change("networks", panel.networkIndex, "internet", checked)
+    }
+    Label {
+        text: "Dải địa chỉ IP (tùy chọn)"
+        color: Studio.Theme.textOnSurface
+    }
+    StudioTextField {
+        Layout.fillWidth: true
+        Accessible.name: "Subnet IPv4"
+        objectName: "draftNetworkSubnet"
+        placeholderText: "Để trống: tự động · ví dụ 10.231.20.0/24"
+        text: panel.network ? panel.network.subnet || "" : ""
+
+        onEditingFinished: panel.editor.change("networks", panel.networkIndex, "subnet", text.trim())
+    }
     InlineError {
+        notifyError: false
         Layout.fillWidth: true
-        message: panel.editor.report && !panel.editor.dirty
-            ? (panel.editor.report.issues || []).filter(issue => issue.path.startsWith("/networks") || issue.stage === "lab")
-                .map(issue => issue.path + ": " + issue.message).join("\n") : ""
-    }
-    Label { text: "Bridge gateway" }
-    StudioTextField { Layout.fillWidth: true; enabled: !!panel.network && !!panel.network.subnet; text: panel.network ? panel.network.gateway || "" : ""; placeholderText: "Mặc định địa chỉ đầu tiên trong subnet"; onEditingFinished: panel.editor.change("networks", panel.networkIndex, "gateway", text.trim()) }
-    Label {
-        Layout.fillWidth: true
-        text: "Chỉ mạng nội bộ RFC1918 /16–/30. Gateway là bridge Docker, không phải máy router. Subnet trùng với Session khác sẽ bị từ chối."
-        wrapMode: Text.WordWrap
-        color: Studio.Theme.textOnSurfaceVariant
-    }
-    SectionHeader { title: "Máy kết nối"; titleSize: Studio.Theme.titleMedium; iconName: "lan"; Layout.fillWidth: true }
-    Repeater {
-        model: panel.network && panel.editor.document ? panel.editor.document.nodes.filter(node => node.networks.includes(panel.network.id)) : []
-        Label {
-            required property var modelData
-            Layout.fillWidth: true
-            text: modelData.id + " · " + ((modelData.addresses || {})[panel.network.id] || "IP tự động")
-                + " · DNS: " + ((modelData.dns || []).join(", ") || "Nội bộ mặc định")
-            wrapMode: Text.WrapAnywhere
-            color: Studio.Theme.textOnSurfaceVariant
-        }
+        message: panel.editor.report && !panel.editor.dirty ? (panel.editor.report.issues || []).filter(issue => issue.path.startsWith("/networks") || issue.stage === "lab").map(issue => issue.path + ": " + issue.message).join("\n") : ""
     }
     Label {
-        Layout.fillWidth: true
-        text: "Chọn DNS và IP tĩnh trong Máy lab → Kết nối mạng."
-        wrapMode: Text.WordWrap
-        color: Studio.Theme.textOnSurfaceVariant
+        visible: panel.advanced
+        text: "IP cổng kết nối"
+        color: Studio.Theme.textOnSurface
     }
-    StudioButton { iconName: "delete"; text: "Xóa mạng khỏi nháp"; danger: true; onClicked: panel.editor.modify("networks", null, panel.networkIndex) }
+    StudioTextField {
+        Layout.fillWidth: true
+        Accessible.name: "Bridge gateway"
+        objectName: "draftNetworkGateway"
+        visible: panel.advanced
+        enabled: !!panel.network && !!panel.network.subnet
+        placeholderText: "Mặc định: IP khả dụng đầu tiên trong dải mạng"
+        text: panel.network ? panel.network.gateway || "" : ""
+
+        onEditingFinished: panel.editor.change("networks", panel.networkIndex, "gateway", text.trim())
+    }
+    StudioButton {
+        flat: true
+        iconName: "settings"
+        objectName: "networkAdvancedToggle"
+        text: panel.advanced ? "Ẩn nâng cao" : "Nâng cao"
+        onClicked: panel.advanced = !panel.advanced
+    }
+    StudioButton {
+        danger: true
+        flat: true
+        iconName: "delete"
+        text: "Xóa mạng khỏi nháp"
+
+        onClicked: panel.editor.modify("networks", null, panel.networkIndex)
+    }
 }

@@ -18,11 +18,26 @@ function sameAccount(first, second) {
     return !!first && !!second && ["name", "uid", "gid", "home", "shell"].every(key => first[key] === second[key]);
 }
 
+function validUsername(value, reserved) {
+    const blocked = reserved || ["root", "nobody", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp",
+        "proxy", "www-data", "backup", "list", "irc", "ubuntu", "sshd", "messagebus", "polkitd",
+        "systemd-network", "systemd-resolve", "systemd-timesync", "tcpdump", "uuidd", "landscape", "syslog"];
+    return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}(?![\s\S])/.test(value) && !blocked.includes(value);
+}
+
+function defaultAccount(profile, username) {
+    if (!profile || !profile.workstation || !profile.custom_username || !profile.accounts.length)
+        return null;
+    const name = validUsername(username, profile.reserved_usernames) ? username : "student";
+    return Object.assign({}, profile.accounts[0], {name: name, home: "/home/" + name});
+}
+
 function accountOptions(policy, node) {
     if (!node) return [];
     const selected = profile(policy, node.image);
     const options = (selected ? selected.accounts : []).map(account => ({label: account.name, user: account}));
-    options.push({label: "Tài khoản mặc định (/tmp/lab)", user: null});
+    if (!selected || !selected.workstation)
+        options.push({label: "Tài khoản mặc định (/tmp/lab)", user: null});
     if (node.user && !options.some(option => sameAccount(option.user, node.user)))
         options.push({label: node.user.name + " (tùy chỉnh)", user: node.user});
     return options;
@@ -66,13 +81,27 @@ function nextAddress(document, networkId) {
     return "";
 }
 
-function newNode(document, policy, identifier) {
+function enableGui(node, policy) {
+    if (node.image !== "cyberlab/ubuntu:24.04-1" || !policy || !policy.software_preparation) return;
+    const previous = node.software || {};
+    node.software = Object.assign({}, previous, {gui: true, apps: previous.apps || [], packages: previous.packages || []});
+    if (!previous.gui) delete node.software.environment;
+    const resources = policy.software_catalog && policy.software_catalog.resources;
+    if (resources) {
+        node.resources = Object.assign({}, node.resources || {});
+        for (const name of Object.keys(resources))
+            node.resources[name] = Math.max(node.resources[name] || 0, resources[name]);
+    }
+}
+
+function newNode(document, policy, identifier, username) {
     const options = profiles(policy);
     if (!options.length) throw new Error("Chưa có môi trường được phép. Làm mới kết nối trước khi thêm máy.");
     const selected = options[0];
     const node = {id: identifier, image: selected.image, command: copy(selected.command || []), networks: [], terminal_count: 1};
+    if (selected.resources) node.resources = copy(selected.resources);
     const usedAccounts = document.nodes.filter(entry => entry.image === selected.image && entry.user).map(entry => entry.user.name);
-    const account = selected.accounts.find(entry => !usedAccounts.includes(entry.name)) || selected.accounts[0];
+    const account = defaultAccount(selected, username) || selected.accounts.find(entry => !usedAccounts.includes(entry.name)) || selected.accounts[0];
     if (account) node.user = copy(account);
     if (document.networks.length) {
         const network = document.networks[0];
@@ -80,6 +109,7 @@ function newNode(document, policy, identifier) {
         const address = nextAddress(document, network.id);
         if (address) node.addresses = {[network.id]: address};
     }
+    enableGui(node, policy);
     return node;
 }
 
@@ -99,24 +129,30 @@ function canAddMachine(document, policy) {
     return machines < (policy && policy.max_nodes || 4) && terminals < (policy && policy.max_terminal_slots_per_lab || 8);
 }
 
-function changeImage(document, index, image, policy) {
+function changeImage(document, index, image, policy, username) {
     const selected = profile(policy, image);
     if (!selected) throw new Error("Môi trường không được daemon cho phép.");
     const result = copy(document);
     const node = result.nodes[index];
     if (!node) throw new Error("Máy không còn tồn tại.");
     if (node.image === image) return result;
+    if (node.software && ((node.software.apps || []).length || (node.software.packages || []).length))
+        throw new Error("Bỏ các phần mềm đã chọn trước khi đổi môi trường. Cấu hình hiện tại vẫn được giữ nguyên.");
+    delete node.software;
     const followsPrompt = node.terminal_title === (node.user ? node.user.name : "nobody") + "@" + (node.hostname || node.id);
     const previous = profile(policy, node.image);
     const defaultCommand = previous && JSON.stringify(node.command) === JSON.stringify(previous.command);
     const legacyCommand = JSON.stringify(node.command) === JSON.stringify(["sleep", "3600"]);
     if ((!node.command || !node.command.length || defaultCommand || legacyCommand) && selected.command)
         node.command = copy(selected.command);
-    const matching = selected.accounts.find(account => sameAccount(account, node.user));
+    const matching = defaultAccount(selected, username) || selected.accounts.find(account => sameAccount(account, node.user));
     if (matching) node.user = copy(matching);
     else if (selected.accounts.length) node.user = copy(selected.accounts[0]);
     else delete node.user;
     if (followsPrompt) node.terminal_title = (node.user ? node.user.name : "nobody") + "@" + (node.hostname || node.id);
     node.image = image;
+    if (selected.resources) node.resources = copy(selected.resources);
+    else if (!selected.workstation && previous && previous.workstation) delete node.resources;
+    enableGui(node, policy);
     return result;
 }

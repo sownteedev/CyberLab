@@ -6,150 +6,151 @@ import "../.." as Studio
 
 ColumnLayout {
     id: appearance
-    property bool showPreview: true
-    spacing: Studio.Theme.space16
 
     function focusSelection() {
         const index = ["system", "light", "dark"].indexOf(Studio.Theme.themeMode);
         modes.itemAt(Math.max(0, index)).forceActiveFocus(Qt.TabFocusReason);
     }
 
-    SectionHeader {
-        Layout.fillWidth: true
-        title: "Giao diện"
-        subtitle: "Chọn cách CyberLab hiển thị trên VM của bạn."
-    }
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Studio.Theme.space8
-        Label {
-            text: "Chế độ màu"
-            font.pixelSize: Studio.Theme.titleSmall
-            font.weight: Font.DemiBold
-            color: Studio.Theme.textOnSurface
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Studio.Theme.space8
-            Repeater {
-                id: modes
-                model: [
-                    { mode: "system", label: "Hệ thống", icon: "desktop_windows" },
-                    { mode: "light", label: "Sáng", icon: "light_mode" },
-                    { mode: "dark", label: "Tối", icon: "dark_mode" }
-                ]
-                StudioButton {
-                    required property var modelData
-                    objectName: "theme_" + modelData.mode
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    text: modelData.label
-                    iconName: modelData.icon
-                    selected: Studio.Theme.themeMode === modelData.mode
-                    Accessible.role: Accessible.RadioButton
-                    Accessible.checkable: true
-                    Accessible.checked: selected
-                    onClicked: Studio.Theme.themeMode = modelData.mode
-                }
-            }
-        }
-    }
-    StudioSurface {
-        objectName: "appearancePreview"
-        visible: appearance.showPreview
-        Layout.fillWidth: true
-        implicitHeight: 120
-        color: Studio.Theme.surfaceContainerLow
-        radius: Studio.Theme.shapeLargeIncreased
-        RowLayout {
-            anchors.fill: parent
-            anchors.margins: Studio.Theme.space24
-            spacing: Studio.Theme.space16
-            Rectangle {
-                Layout.preferredWidth: Studio.Theme.rowHeight
-                Layout.preferredHeight: Studio.Theme.rowHeight
-                radius: Studio.Theme.shapeLargeIncreased
-                color: Studio.Theme.primaryContainer
-                Icon { anchors.centerIn: parent; name: "science"; size: Studio.Theme.iconLarge; color: Studio.Theme.textOnPrimaryContainer }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Studio.Theme.space8
-                Label {
-                    Layout.fillWidth: true
-                    text: "CyberLab Studio"
-                    elide: Text.ElideRight
-                    font.pixelSize: Studio.Theme.titleMedium
-                    font.weight: Font.DemiBold
-                    color: Studio.Theme.textOnSurface
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: Studio.Theme.effectiveDark ? "Inter · Giao diện tối" : "Inter · Giao diện sáng"
-                    wrapMode: Text.WordWrap
-                    color: Studio.Theme.textOnSurfaceVariant
-                    font.pixelSize: Studio.Theme.bodyMedium
-                }
-            }
-            Icon { name: "check_circle"; color: Studio.Theme.primary }
-        }
-    }
+    spacing: Studio.Theme.space16
+
     StudioSurface {
         Layout.fillWidth: true
-        implicitHeight: motionRow.implicitHeight + Studio.Theme.space32
-        radius: Studio.Theme.shapeLargeIncreased
         color: Studio.Theme.surfaceContainerLow
-        RowLayout {
-            id: motionRow
+        implicitHeight: colorOptions.implicitHeight + Studio.Theme.space32
+
+        ColumnLayout {
+            id: colorOptions
+
             anchors.fill: parent
             anchors.margins: Studio.Theme.space16
-            spacing: Studio.Theme.space16
-            Icon { name: "animation"; color: Studio.Theme.primary }
-            ColumnLayout {
+            spacing: Studio.Theme.space8
+
+            Label {
+                color: Studio.Theme.textOnSurface
+                font.pixelSize: Studio.Theme.titleSmall
+                font.weight: Font.DemiBold
+                text: "Chế độ màu"
+            }
+            RowLayout {
                 Layout.fillWidth: true
                 spacing: Studio.Theme.space8
-                Label { text: "Giảm chuyển động"; color: Studio.Theme.textOnSurface; font.pixelSize: Studio.Theme.titleSmall; font.weight: Font.DemiBold }
-                Label {
-                    Layout.fillWidth: true
-                    text: "Tắt chuyển động và hiệu ứng hộp thoại."
-                    wrapMode: Text.WordWrap
-                    color: Studio.Theme.textOnSurfaceVariant
-                    font.pixelSize: Studio.Theme.bodySmall
-                }
-            }
-            Switch {
-                id: motionSwitch
-                objectName: "reducedMotionSwitch"
-                implicitHeight: Studio.Theme.controlHeight
-                implicitWidth: Studio.Theme.rowHeight
-                checked: Studio.Theme.reducedMotion
-                Accessible.name: "Giảm chuyển động"
-                onToggled: Studio.Theme.reducedMotion = checked
-                indicator: Rectangle {
-                    anchors.centerIn: parent
-                    width: 52; height: 32
-                    radius: Studio.Theme.shapeFull
-                    color: motionSwitch.checked ? Studio.Theme.primary : Studio.Theme.surfaceVariant
-                    border.width: motionSwitch.visualFocus ? Studio.Theme.focusWidth : Studio.Theme.borderWidth
-                    border.color: motionSwitch.visualFocus ? Studio.Theme.primary : Studio.Theme.outline
-                    Rectangle {
-                        x: motionSwitch.checked ? 24 : 4
-                        y: 4; width: 24; height: 24
-                        radius: Studio.Theme.shapeFull
-                        color: motionSwitch.checked ? Studio.Theme.textOnPrimary : Studio.Theme.outline
-                        Icon { anchors.centerIn: parent; name: "check"; size: Studio.Theme.iconSmall; color: Studio.Theme.primary; visible: motionSwitch.checked }
-                        Behavior on x { enabled: !Studio.Theme.reducedMotion; NumberAnimation { duration: Studio.Theme.stateDuration } }
+
+                Repeater {
+                    id: modes
+
+                    model: [
+                        {
+                            mode: "system",
+                            label: "Hệ thống",
+                            icon: "desktop_windows"
+                        },
+                        {
+                            mode: "light",
+                            label: "Sáng",
+                            icon: "light_mode"
+                        },
+                        {
+                            mode: "dark",
+                            label: "Tối",
+                            icon: "dark_mode"
+                        }
+                    ]
+
+                    StudioButton {
+                        required property var modelData
+
+                        Accessible.checkable: true
+                        Accessible.checked: selected
+                        Accessible.role: Accessible.RadioButton
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        leftPadding: appearance.width >= 380 ? Studio.Theme.space16 : Studio.Theme.space8
+                        rightPadding: leftPadding
+                        flat: true
+                        iconName: appearance.width >= 380 ? modelData.icon : ""
+                        objectName: "theme_" + modelData.mode
+                        selected: Studio.Theme.themeMode === modelData.mode
+                        text: modelData.label
+
+                        onClicked: Studio.Theme.themeMode = modelData.mode
                     }
                 }
             }
         }
     }
-    Item { Layout.fillHeight: true }
-    Label {
+    StudioSurface {
         Layout.fillWidth: true
-        text: "Tự lưu cho tài khoản này. Không thay đổi bài lab."
-        wrapMode: Text.WordWrap
-        color: Studio.Theme.textOnSurfaceVariant
-        font.pixelSize: Studio.Theme.bodySmall
+        color: Studio.Theme.surfaceContainerLow
+        implicitHeight: zoomOptions.implicitHeight + Studio.Theme.space32
+
+        ColumnLayout {
+            id: zoomOptions
+
+            anchors.fill: parent
+            anchors.margins: Studio.Theme.space16
+            spacing: Studio.Theme.space8
+
+            Label {
+                color: Studio.Theme.textOnSurface
+                font.pixelSize: Studio.Theme.titleSmall
+                font.weight: Font.DemiBold
+                text: "Thu phóng ứng dụng"
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Studio.Theme.space8
+
+                Item {
+                    Layout.fillWidth: true
+                    visible: appearance.width >= 460
+                }
+                StudioButton {
+                    Accessible.name: "Thu nhỏ ứng dụng"
+                    enabled: Studio.Theme.zoomPercent > Studio.Theme.minimumZoom
+                    flat: true
+                    objectName: "zoomOutButton"
+                    text: "−"
+                    onClicked: Studio.Theme.setZoomPercent(Studio.Theme.zoomPercent - 10)
+                }
+                Label {
+                    Layout.fillWidth: appearance.width < 460
+                    Layout.preferredWidth: Studio.Theme.rowHeight
+                    horizontalAlignment: Text.AlignHCenter
+                    color: Studio.Theme.textOnSurface
+                    font.pixelSize: Studio.Theme.titleMedium
+                    font.weight: Font.DemiBold
+                    text: Studio.Theme.zoomPercent + "%"
+                    objectName: "zoomPercentage"
+                }
+                StudioButton {
+                    Accessible.name: "Phóng to ứng dụng"
+                    enabled: Studio.Theme.zoomPercent < Studio.Theme.maximumZoom
+                    flat: true
+                    objectName: "zoomInButton"
+                    text: "+"
+                    onClicked: Studio.Theme.setZoomPercent(Studio.Theme.zoomPercent + 10)
+                }
+                StudioButton {
+                    Accessible.name: "Khôi phục thu phóng 100%"
+                    enabled: Studio.Theme.zoomPercent !== 100
+                    flat: true
+                    objectName: "zoomResetButton"
+                    text: "100%"
+                    onClicked: Studio.Theme.setZoomPercent(100)
+                }
+                Item {
+                    Layout.fillWidth: true
+                    visible: appearance.width >= 460
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                color: Studio.Theme.textOnSurfaceVariant
+                font.pixelSize: Studio.Theme.bodySmall
+                text: "Ctrl + − / + để thu phóng · Ctrl + 0 để đặt lại"
+                wrapMode: Text.WordWrap
+            }
+        }
     }
 }

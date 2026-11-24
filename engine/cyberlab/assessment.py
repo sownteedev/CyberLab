@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 from time import monotonic
 
-from cyberlab.assessment_checks import check_result, combined_status
+from cyberlab.assessment_checks import check_result, assessment_status
 from cyberlab.assessment_goals import check_goal
 from cyberlab.submission import public_report, submission_archive
 from cyberlab.regex_check import MAX_REGEX_BUDGET_SECONDS
@@ -20,7 +20,19 @@ def lab_digest(lab):
             return {"sha256": sha256(value).hexdigest(), "size": len(value)}
         raise TypeError("Unsupported Lab value")
 
-    payload = json.dumps(asdict(lab), default=encode, ensure_ascii=True,
+    document = asdict(lab)
+    # Omitted legacy metadata must keep its historical digest.
+    if document.get("metadata", {}).get("difficulty") is None:
+        document["metadata"].pop("difficulty", None)
+    for node in document['nodes']:
+        if node.get('setup') is None:
+            node.pop('setup', None)
+        if not node.get('system_seed'):
+            node.pop('system_seed', None)
+    for result in document["assessment"]["results"]:
+        if result.get("timestamp_type") is None:
+            result.pop("timestamp_type", None)
+    payload = json.dumps(document, default=encode, ensure_ascii=True,
                          sort_keys=True, separators=(",", ":"))
     return sha256(payload.encode("utf-8")).hexdigest()
 
@@ -89,7 +101,7 @@ def evaluate(session, workspace_by_node, errors=None, package_digest=None, *, as
         "lab_name": lab.metadata.name, "lab_version": lab.metadata.version,
         "lab_digest": package_digest or lab_digest(lab),
         "resolved_digest": lab_digest(lab),
-        "status": combined_status([item["status"] for item in (goals or results)]),
+        "status": assessment_status(goals, results),
         "submission_ready": all(item["status"] in {"COLLECTED", "OPTIONAL_MISSING"} for item in artifacts),
         "results": results, "goals": goals, "artifacts": artifacts,
     }

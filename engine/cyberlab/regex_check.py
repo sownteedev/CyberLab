@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 MAX_PATTERN_BYTES = 4096
 MAX_TEXT_BYTES = 64 * 1024
@@ -50,7 +51,7 @@ def _request(request, timeout=MAX_REGEX_SECONDS):
         raise RegexCheckError("Regex worker request exceeds its limit")
     try:
         completed = subprocess.run(
-            [sys.executable, "-I", "-m", "cyberlab.regex_check"],
+            [sys.executable, "-I", str(Path(__file__).resolve())],
             input=payload, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=min(timeout, MAX_REGEX_SECONDS), check=False,
         )

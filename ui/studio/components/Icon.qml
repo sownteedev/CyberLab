@@ -5,19 +5,23 @@ import ".." as Studio
 
 Item {
     id: icon
+
+    property color color: Studio.Theme.textOnSurface
     property string name: ""
     property int size: Studio.Theme.iconSize
-    property color color: Studio.Theme.textOnSurface
     readonly property int status: image.status
-    implicitWidth: size
-    implicitHeight: size
+
     Accessible.ignored: true
+    implicitHeight: size
+    implicitWidth: size
+
     ColorImage {
         id: image
+
         anchors.fill: parent
+        color: icon.color
+        fillMode: Image.PreserveAspectFit
         source: icon.name.length ? Qt.resolvedUrl("../assets/icons/" + icon.name + ".svg") : ""
         sourceSize: Qt.size(icon.size, icon.size)
-        fillMode: Image.PreserveAspectFit
-        color: icon.color
     }
 }

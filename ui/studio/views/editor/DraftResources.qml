@@ -1,165 +1,174 @@
+pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import QtQuick.Dialogs
-import "../../models/EditorModel.js" as Model
-import "../../models/SessionFiles.js" as Files
-import "../.."
+import "../../models/DraftFiles.js" as Files
 import "../.." as Studio
+import "." as FileWorkspace
 
-ColumnLayout {
+Frame {
     id: panel
     required property var editor
-    readonly property var selectedNode: editor.document ? editor.document.nodes[editor.selectedNode] || null : null
-    readonly property var assets: editor.draft ? editor.draft.assets : []
-    readonly property var rows: selectedNode ? Files.treeRows(Model.previewFiles(selectedNode, assets)) : []
-    property bool advanced: false
     property var pickerTarget: null
     property var pendingUpload: null
     property var pendingDelete: null
-    spacing: Studio.Theme.space12
+    readonly property bool compact: width < 580
+    objectName: "draftResources"
+    implicitHeight: compact ? 700 : 560
+    padding: 8
     enabled: !editor.backend.busy
-
-    function pick(folder) {
-        if (!selectedNode || !editor.draft) return;
-        pickerTarget = {draftId: editor.draft.id, nodeId: selectedNode.id, folder: folder,
-            subfolder: advanced ? subfolder.text.trim() : ""};
-        if (folder) folderPicker.open(); else filePicker.open();
+    background: Rectangle {
+        color: Studio.Theme.surfaceContainer
+        radius: Studio.Theme.shapeExtraLarge
     }
+
     function choose(url) {
+        if (!pickerTarget || !editor.draft || pickerTarget.draftId !== editor.draft.id) {
+            editor.showLocalError(qsTr("Bản nháp đã thay đổi. Chọn lại file."));
+            return;
+        }
         editor.attempt(() => {
             const value = url.toString();
-            const target = pickerTarget;
-            if (!target || !editor.draft || target.draftId !== editor.draft.id) throw new Error("Bản nháp đã thay đổi. Chọn lại file.");
-            if (!value.startsWith("file:///")) throw new Error("Chỉ nhận file trong VM.");
+            if (!value.startsWith("file:///")) throw new Error("Chỉ nhận file trên máy tính này.");
             const source = decodeURIComponent(value.substring(7));
             const name = source.split("/").filter(Boolean).pop();
-            const plan = Model.homeUpload(editor.document, target.nodeId, name, target.folder, target.subfolder, assets);
-            pendingUpload = Object.assign({}, target, {source: source, name: name, destination: plan.destination});
-            const existing = assets.some(asset => asset.path === plan.logical || (target.folder && asset.path.startsWith(plan.logical + "/")));
-            if (existing) replacement.open(); else upload();
+            pendingUpload = Object.assign({}, pickerTarget, {source: source, name: name});
+            const destination = pickerTarget.folder + (pickerTarget.folder ? "/" : "") + (pickerTarget.directory ? "" : name);
+            if (editor.files.rows(pickerTarget.nodeId, Files.branch(pickerTarget.folder)).some(row => !destination || Files.within(row.path, destination) || Files.within(destination, row.path))) replacement.open();
+            else upload();
         });
     }
     function upload() {
         const target = pendingUpload;
         pendingUpload = null;
         if (!target || !editor.draft || editor.draft.id !== target.draftId) return;
-        editor.uploadHome(target.source, target.nodeId, target.name, target.folder, target.subfolder);
+        editor.attempt(() => {
+            editor.files.importLocal(target.source, target.nodeId, target.folder, target.directory);
+        });
     }
-    SectionHeader { title: "File ban đầu"; Layout.fillWidth: true }
-    StudioComboBox {
-        objectName: "seedFileNode"
-        Layout.fillWidth: true
-        Layout.maximumWidth: 420
-        model: panel.editor.document ? panel.editor.document.nodes.map(node => node.id) : []
-        currentIndex: panel.selectedNode ? panel.editor.selectedNode : -1
-        Accessible.name: "Máy nhận file"
-        onActivated: panel.editor.selectedNode = currentIndex
-    }
-    Label {
-        Layout.fillWidth: true
-        text: panel.selectedNode ? Model.workspace(panel.selectedNode) + "/" : "Thêm máy trước khi đưa file vào bài."
-        font.family: Studio.Theme.monoFamily
-        color: Studio.Theme.textOnSurfaceVariant
-        wrapMode: Text.WrapAnywhere
-    }
-    Flow {
-        Layout.fillWidth: true
-        Layout.preferredHeight: implicitHeight
-        spacing: Studio.Theme.space8
-        StudioButton {
-            objectName: "addSeedFile"
-            text: "Thêm file"; iconName: "add"
-            enabled: !!panel.selectedNode && !!panel.editor.policy && panel.editor.policy.home_directory_target === true
-            onClicked: panel.pick(false)
+    contentItem: SplitView {
+        id: split
+        orientation: panel.compact ? Qt.Vertical : Qt.Horizontal
+        handle: Rectangle {
+            implicitWidth: 12
+            implicitHeight: 12
+            color: "transparent"
+            Rectangle {
+                anchors.centerIn: parent
+                width: panel.compact ? 32 : 4
+                height: panel.compact ? 4 : 32
+                radius: 2
+                color: parent.SplitHandle.hovered || parent.SplitHandle.pressed ? Studio.Theme.primary : Studio.Theme.outlineVariant
+            }
         }
-        StudioButton {
-            objectName: "addSeedFolder"
-            text: "Thêm thư mục"; iconName: "folder"
-            enabled: !!panel.selectedNode && !!panel.editor.policy && panel.editor.policy.home_directory_target === true
-            onClicked: panel.pick(true)
+        Studio.DraftFileTree {
+            id: tree
+            SplitView.preferredWidth: 272
+            SplitView.minimumWidth: panel.compact ? 0 : 200
+            SplitView.maximumWidth: panel.compact ? Infinity : Math.max(180, split.width * 0.55)
+            SplitView.preferredHeight: 220
+            SplitView.minimumHeight: 100
+            editor: panel.editor
+            onPropertiesRequested: (nodeId, path) => propertiesDialog.show(nodeId, path)
+            onImportRequested: (nodeId, folder, directory) => {
+                panel.pickerTarget = {nodeId: nodeId, folder: folder, directory: directory, draftId: panel.editor.draft.id};
+                if (directory) folderPicker.open(); else filePicker.open();
+            }
+            onDeleteRequested: (nodeId, path) => {
+                panel.pendingDelete = {nodeId: nodeId, path: path, draftId: panel.editor.draft.id,
+                    definition: panel.editor.definition, revision: panel.editor.draft.revision};
+                deletion.open();
+            }
         }
-    }
-    Label {
-        Layout.fillWidth: true
-        text: "Thư mục: chép nội dung vào home, giữ các thư mục con. Chỉ thay đổi bản nháp."
-        wrapMode: Text.WordWrap
-        font.pixelSize: Studio.Theme.bodySmall
-        color: Studio.Theme.textOnSurfaceVariant
-    }
-    Label {
-        visible: !panel.rows.length
-        text: "Chưa có file."
-        color: Studio.Theme.textOnSurfaceVariant
-    }
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: 0
-        Repeater {
-            model: panel.rows
-            RowLayout {
-                id: fileRow
-                required property var modelData
-                Layout.fillWidth: true
-                TreeRow { Layout.fillWidth: true; entry: fileRow.modelData; showMetadata: false }
-                StudioIconButton {
-                    objectName: "deleteSeed-" + fileRow.modelData.path
-                    iconName: "delete"
-                    description: "Xóa " + fileRow.modelData.path + " khỏi máy"
-                    visible: !fileRow.modelData.isDirectory
-                    onClicked: {
-                        panel.pendingDelete = {draftId: panel.editor.draft.id, nodeId: panel.selectedNode.id, path: fileRow.modelData.path};
-                        deletion.open();
+        Pane {
+            SplitView.fillWidth: true
+            SplitView.fillHeight: true
+            SplitView.minimumWidth: panel.compact ? 0 : 220
+            padding: 4
+            background: Rectangle { color: Studio.Theme.surfaceContainerLow; radius: Studio.Theme.shapeLarge }
+            contentItem: ColumnLayout {
+                spacing: 0
+                Studio.DraftFileTabs {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 56
+                    files: panel.editor.files
+                    visible: panel.editor.files.tabs.length > 0
+                }
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Repeater {
+                        model: panel.editor.files.tabs
+                        delegate: Studio.DraftFileTextEditor {
+                            required property var modelData
+                            anchors.fill: parent
+                            files: panel.editor.files
+                            tab: modelData
+                            visible: modelData.key === panel.editor.files.activeKey
+                        }
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        width: Math.max(0, parent.width - 32)
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        color: Studio.Theme.textOnSurfaceVariant
+                        visible: panel.editor.files.tabs.length === 0
+                        text: panel.editor.document && panel.editor.document.nodes.length ? qsTr("Chọn file để sửa, hoặc nhấn + để tạo.") : qsTr("Thêm máy Lab trước khi tạo file.")
                     }
                 }
             }
         }
     }
-    StudioButton {
-        objectName: "fileAdvancedToggle"
-        text: panel.advanced ? "Ẩn nâng cao" : "Nâng cao"
-        iconName: "settings"
-        flat: true
-        onClicked: panel.advanced = !panel.advanced
+    FileWorkspace.DraftFileProperties {
+        id: propertiesDialog
+        editor: panel.editor
     }
-    ColumnLayout {
-        visible: panel.advanced
-        Layout.fillWidth: true
-        Label { text: "Thêm vào thư mục con" }
-        StudioTextField { id: subfolder; Layout.fillWidth: true; placeholderText: "Để trống để dùng home" }
-        Loader {
-            Layout.fillWidth: true
-            active: panel.advanced
-            sourceComponent: DraftFileAdvanced { editor: panel.editor; node: panel.selectedNode }
+    Connections {
+        target: panel.editor
+        function onDraftChanged() { tree.naming = null; tree.selection = null; tree.selectedKey = ""; }
+    }
+    Studio.ConfirmDialog {
+        id: deletion
+        parent: Overlay.overlay
+        title: qsTr("Xóa khỏi máy này?")
+        message: panel.pendingDelete ? panel.pendingDelete.nodeId + " / " + panel.pendingDelete.path : ""
+        confirmText: qsTr("Xóa")
+        danger: true
+        objectName: "deleteSeedFileDialog"
+        onAccepted: {
+            const target = panel.pendingDelete;
+            if (target && panel.editor.draft && target.draftId === panel.editor.draft.id) {
+                if (target.definition !== panel.editor.definition || target.revision !== panel.editor.draft.revision)
+                    panel.editor.showLocalError(qsTr("Bản nháp đã thay đổi. Xác nhận lại thao tác xóa."));
+                else panel.editor.files.remove(target.nodeId, target.path);
+            }
+            panel.pendingDelete = null;
         }
+        onRejected: panel.pendingDelete = null
     }
-    ConfirmDialog {
+    Studio.ConfirmDialog {
         id: replacement
         objectName: "replaceSeedFilesDialog"
         parent: Overlay.overlay
-        title: "Thêm vào vị trí đã có file?"
-        message: panel.pendingUpload ? panel.pendingUpload.destination + "\nFile trùng sẽ được thay trong bản nháp; các file khác vẫn giữ. Bài đã xuất bản không đổi." : ""
-        confirmText: "Thêm và thay file trùng"
-        confirmEnabled: !panel.editor.backend.busy
+        title: qsTr("Thay file trùng tên?")
+        message: qsTr("Chỉ thay trong máy đang chọn. Các máy khác giữ nguyên.")
+        confirmText: qsTr("Thêm và thay thế")
         onAccepted: panel.upload()
         onRejected: panel.pendingUpload = null
     }
-    ConfirmDialog {
-        id: deletion
-        objectName: "deleteSeedFileDialog"
-        parent: Overlay.overlay
-        title: "Xóa file khỏi bản nháp?"
-        message: panel.pendingDelete ? panel.pendingDelete.nodeId + " / " + panel.pendingDelete.path + "\nKhông xóa file nguồn trên VM hoặc bài đã xuất bản." : ""
-        danger: true
-        confirmText: "Xóa file"
-        confirmEnabled: !panel.editor.backend.busy
-        onAccepted: {
-            const target = panel.pendingDelete;
-            if (target && panel.editor.draft && target.draftId === panel.editor.draft.id)
-                panel.editor.removeHomeFile(target.nodeId, target.path);
-            panel.pendingDelete = null;
-        }
+    Studio.StudioFileDialog {
+        id: filePicker
+        objectName: "seedFilePicker"
+        title: qsTr("Thêm file từ máy tính")
+        returnFocus: tree
+        onAccepted: panel.choose(selectedFile)
     }
-    FileDialog { id: filePicker; objectName: "seedFilePicker"; title: "Thêm file vào máy"; onAccepted: panel.choose(selectedFile) }
-    FolderDialog { id: folderPicker; objectName: "seedFolderPicker"; title: "Thêm nội dung thư mục vào máy"; onAccepted: panel.choose(selectedFolder) }
+    Studio.StudioFolderDialog {
+        id: folderPicker
+        objectName: "seedFolderPicker"
+        title: qsTr("Thêm nội dung thư mục")
+        returnFocus: tree
+        onAccepted: panel.choose(selectedFolder)
+    }
 }

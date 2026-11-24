@@ -22,7 +22,8 @@ def public_report(report):
 def html_report(report):
     rows = "".join(
         "<tr>" + "".join("<td>" + escape(str(value)) + "</td>" for value in (
-            item.get("description") or item["id"], item["status"], item.get("message", ""))) + "</tr>"
+            item.get("description") or item["id"], item["status"], item.get("message", ""),
+            json.dumps(item.get("instances", item.get("value", "")), ensure_ascii=False))) + "</tr>"
         for item in report.get("goals", []) + report.get("results", []))
     quiz = report.get("quiz")
     quiz_html = ""
@@ -39,7 +40,7 @@ def html_report(report):
             "<title>CyberLab Checkwork</title><h1>" + escape(report["lab_name"]) + "</h1><p>"
             + escape(report["status"]) + " - " + escape(report["created_at"])
             + "</p><p>Local self-check; not a tamper-proof grade.</p>"
-            "<table><thead><tr><th>Criterion</th><th>Status</th><th>Details</th></tr></thead><tbody>"
+            "<table><thead><tr><th>Criterion</th><th>Status</th><th>Details</th><th>Captured value</th></tr></thead><tbody>"
             + rows + "</tbody></table>" + quiz_html + "</html>")
 
 

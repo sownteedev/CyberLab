@@ -22,6 +22,7 @@ async def serve(arguments):
     temporary_authoring = None
     authoring_path = None
     practice_path = None
+    workstation_images = frozenset()
     if arguments.test_session_bus:
         if os.geteuid() == 0:
             raise ValueError("Test mode must run unprivileged, not as root")
@@ -47,7 +48,8 @@ async def serve(arguments):
         config = load_config(arguments.config)
         from cyberlab.runtime.docker import DockerRuntime
 
-        runtime = DockerRuntime()
+        workstation_images = config.workstation_images
+        runtime = DockerRuntime(workstation_images=workstation_images)
         allowed_uids, catalog, images = config.allowed_uids, config.catalog, config.allowed_images
         bus_type = BusType.SYSTEM
         if config.authoring:
@@ -66,10 +68,11 @@ async def serve(arguments):
     if practice_path is not None:
         from cyberlab.session.persistence import PracticeStore
         practice_store = PracticeStore(practice_path)
-    engine = Engine(catalog, RuntimePolicy(images), runtime, practice_store=practice_store)
+    engine = Engine(catalog, RuntimePolicy(images, workstation_images=workstation_images), runtime, practice_store=practice_store)
     engine.labs()
     bus = await MessageBus(bus_type=bus_type).connect()
     server = None
+    desktop_reaper = None
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     try:
@@ -77,14 +80,27 @@ async def serve(arguments):
         if reply != RequestNameReply.PRIMARY_OWNER:
             raise ValueError("Another cyberlabd instance owns the bus name")
         await asyncio.to_thread(runtime.cleanup)
+        await asyncio.to_thread(engine.collect_system_checkpoints)
         authoring = None
         if authoring_path is not None:
             from cyberlab.authoring import Authoring
 
             authoring = Authoring(authoring_path, catalog, engine.policy, engine._lock,
                                   runtime_checker=engine.check_runtime, update_checker=engine.check_lab_update)
+            if hasattr(runtime, "software"):
+                from cyberlab.authoring.software import SoftwarePreparation
+                await asyncio.to_thread(runtime.software.cleanup)
+                authoring.software = SoftwarePreparation(authoring_path.with_name("software.sqlite3"), authoring, runtime.software,
+                                                         active_images=engine.software_image_ids)
+                runtime.prepared_software = authoring.software
+                await asyncio.to_thread(engine._cleanup_software_images)
         server = Server(bus, engine, allowed_uids, authoring)
         bus.add_message_handler(server.handle)
+        async def reap_desktops():
+            while True:
+                await asyncio.sleep(5)
+                await asyncio.to_thread(engine.expire_desktops)
+        desktop_reaper = asyncio.create_task(reap_desktops())
         for signum in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(signum, stop.set)
         logging.info("Ready: %s, runtime=%s", BUS_NAME, runtime.name)
@@ -99,6 +115,9 @@ async def serve(arguments):
         await asyncio.gather(stop_task, disconnect_task, return_exceptions=True)
     finally:
         try:
+            if desktop_reaper is not None:
+                desktop_reaper.cancel()
+                await asyncio.gather(desktop_reaper, return_exceptions=True)
             if server is not None:
                 await server.shutdown()
         finally:

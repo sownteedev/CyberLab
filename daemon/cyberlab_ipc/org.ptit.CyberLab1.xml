@@ -1,12 +1,31 @@
 <node>
   <interface name="org.ptit.CyberLab1">
+    <method name="UnlockEditing"><arg name="kind" type="s" direction="in"/><arg name="id" type="s" direction="in"/><arg name="password" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="SetEditPassword"><arg name="kind" type="s" direction="in"/><arg name="id" type="s" direction="in"/><arg name="current_password" type="s" direction="in"/><arg name="new_password" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="RevokeEditing"><arg name="token" type="s" direction="in"/><arg name="revoked" type="b" direction="out"/></method>
+    <method name="ProtectedAuthoring"><arg name="token" type="s" direction="in"/><arg name="method" type="s" direction="in"/><arg name="body" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="PrepareDesktopContext"><arg name="context_json" type="s" direction="in"/><arg name="handle" type="s" direction="out"/></method>
+    <method name="ReleaseDesktopContext"><arg name="handle" type="s" direction="in"/><arg name="released" type="b" direction="out"/></method>
+    <method name="StartLabWithDesktop"><arg name="lab_id" type="s" direction="in"/><arg name="parameters" type="a{ss}" direction="in"/><arg name="context" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ResumeSessionWithDesktop"><arg name="session_id" type="s" direction="in"/><arg name="context" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ResetSessionWithDesktop"><arg name="session_id" type="s" direction="in"/><arg name="context" type="s" direction="in"/><arg name="session" type="a{sv}" direction="out"/></method>
+    <method name="ReconnectNativeDesktop"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="context" type="s" direction="in"/><arg name="ready" type="b" direction="out"/></method>
+    <method name="PlanNodeSoftware"><arg name="draft" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="node" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="PrepareNodeSoftware"><arg name="draft" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="node" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="GetSoftwareJob"><arg name="job" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="CancelSoftwareJob"><arg name="job" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
+    <method name="ApplySoftwareJob"><arg name="job" type="s" direction="in"/><arg name="result" type="s" direction="out"/></method>
     <method name="GetAuthoringInfo"><arg name="info_json" type="s" direction="out"/></method>
     <method name="CreateDraft"><arg name="lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="CreateTaggedDraft"><arg name="lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="tags" type="as" direction="in"/><arg name="difficulty" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
     <method name="CloneLab"><arg name="source_lab_id" type="s" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
     <method name="EditLab"><arg name="lab_id" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="ResolveLabDraft"><arg name="lab_id" type="s" direction="in"/><arg name="draft_id" type="s" direction="in"/><arg name="new_draft" type="b" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
     <method name="ListDrafts"><arg name="drafts_json" type="s" direction="out"/></method>
     <method name="GetDraft"><arg name="draft_id" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
     <method name="SaveDraft"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="definition" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="SaveDraftWorkspace"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="workspace_json" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="SetNodeAccountPassword"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="request_json" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
     <method name="PutDraftAssets"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="assets" type="a(say)" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
     <method name="GetDraftAsset"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="path" type="s" direction="in"/><arg name="data" type="ay" direction="out"/></method>
     <method name="RemoveDraftAsset"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="path" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
@@ -19,6 +38,7 @@
     <method name="ExportDraftPackage"><arg name="draft_id" type="s" direction="in"/><arg name="revision" type="u" direction="in"/><arg name="archive" type="ay" direction="out"/></method>
     <method name="ImportLabPackage"><arg name="archive" type="ay" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
     <method name="ImportLabtainer"><arg name="archive" type="ay" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="draft_json" type="s" direction="out"/></method>
+    <method name="InspectLabtainer"><arg name="archive" type="ay" direction="in"/><arg name="target_lab_id" type="s" direction="in"/><arg name="title" type="s" direction="in"/><arg name="report_json" type="s" direction="out"/></method>
     <method name="GetVersion"><arg name="version" type="s" direction="out"/></method>
     <method name="GetCapabilities"><arg name="capabilities" type="as" direction="out"/></method>
     <method name="ListLabs"><arg name="labs" type="aa{sv}" direction="out"/></method>
@@ -61,6 +81,13 @@
     <method name="WriteTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="data" type="ay" direction="in"/><arg name="accepted" type="u" direction="out"/></method>
     <method name="ResizeTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="rows" type="q" direction="in"/><arg name="columns" type="q" direction="in"/><arg name="resized" type="b" direction="out"/></method>
     <method name="CloseTerminal"><arg name="terminal_id" type="s" direction="in"/><arg name="detached" type="b" direction="out"/></method>
+    <method name="GetDesktopStatus"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="status_json" type="s" direction="out"/></method>
+    <method name="PrepareDesktop"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="ready" type="b" direction="out"/></method>
+    <method name="OpenDesktop"><arg name="session_id" type="s" direction="in"/><arg name="node_id" type="s" direction="in"/><arg name="attachment" type="(say)" direction="out"/></method>
+    <method name="ConfirmDesktop"><arg name="handle" type="s" direction="in"/><arg name="ready" type="b" direction="out"/></method>
+    <method name="ReadDesktop"><arg name="handle" type="s" direction="in"/><arg name="data" type="(ayb)" direction="out"/></method>
+    <method name="WriteDesktop"><arg name="handle" type="s" direction="in"/><arg name="data" type="ay" direction="in"/><arg name="accepted" type="u" direction="out"/></method>
+    <method name="CloseDesktop"><arg name="handle" type="s" direction="in"/><arg name="closed" type="b" direction="out"/></method>
   </interface>
   <interface name="org.freedesktop.DBus.Introspectable">
     <method name="Introspect"><arg name="xml" type="s" direction="out"/></method>

@@ -5,108 +5,190 @@ import Quickshell
 import ".."
 import ".." as Studio
 import "../models/WindowMetrics.js" as WindowMetrics
+import "../views/editor" as Editing
 
 ApplicationWindow {
     id: window
-    required property var api
-    required property var controller
-    property bool smoke: false
-    property bool allowClose: false
-    readonly property var editor: content.editor
-    readonly property var capture: content
-    readonly property var appearanceLoader: settingsLoader
-    readonly property bool confirmationOpened: windowDialogs.confirmationOpened
-    readonly property var desktopGeometry: WindowMetrics.initialSize(Screen.width, Screen.height,
-        Screen.desktopAvailableWidth, Screen.desktopAvailableHeight)
 
-    width: smoke ? (Number(Quickshell.env("CYBERLAB_STUDIO_SMOKE_WIDTH")) || (Quickshell.env("CYBERLAB_STUDIO_SMOKE_COMPACT") === "1" ? 1024 : 1280)) : desktopGeometry.width
-    height: smoke ? (Number(Quickshell.env("CYBERLAB_STUDIO_SMOKE_HEIGHT")) || (Quickshell.env("CYBERLAB_STUDIO_SMOKE_COMPACT") === "1" ? 700 : 820)) : desktopGeometry.height
-    minimumWidth: smoke ? 0 : desktopGeometry.minimumWidth
-    minimumHeight: smoke ? 0 : desktopGeometry.minimumHeight
-    visible: true
-    title: "CyberLab Studio" + (api.demo ? " — DEMO" : "")
-    Material.theme: Studio.Theme.effectiveDark ? Material.Dark : Material.Light
-    Material.accent: Studio.Theme.primary
-    Material.primary: Studio.Theme.surface
-    Material.foreground: Studio.Theme.textOnSurface
-    Material.background: Studio.Theme.surfaceContainer
-    font.family: Studio.Theme.fontFamily
-    font.pixelSize: Studio.Theme.bodyMedium
-    color: Studio.Theme.surface
+    property bool allowClose: false
+    signal closeAccepted
+    required property var api
+    readonly property var appearanceLoader: settingsLoader
+    readonly property var capture: content
+    readonly property bool confirmationOpened: windowDialogs.confirmationOpened
+    required property var controller
+    readonly property var desktopGeometry: WindowMetrics.initialSize(Screen.width, Screen.height, Screen.desktopAvailableWidth, Screen.desktopAvailableHeight)
+    readonly property var editor: content.editor
+    property bool smoke: false
+
+    Connections {
+        target: window.controller
+        function onPageChanged() {
+            if (window.controller.page !== 2 && window.api.clearEditing) window.api.clearEditing();
+        }
+    }
+    Editing.EditPasswordDialog {
+        id: editPassword
+        api: window.api
+    }
+    Connections {
+        target: window.api
+        ignoreUnknownSignals: true
+        function onEditUnlockRequested(kind, identifier, message) { editPassword.showUnlock(kind, identifier, message); }
+        function onEditUnlockDismissed() { editPassword.close(); }
+    }
 
     function navigate(index) {
-        if (api.busy || index === controller.page) return;
+        if (api.busy || index === controller.page)
+            return;
         if (controller.page === 2 && editor.dirty) {
             windowDialogs.confirmNavigation(index);
             return;
         }
         showPage(index);
     }
-    function showPage(index) {
-        controller.manualGeneration += 1;
-        controller.page = index;
-        if (index === 0 && controller.selectedLab) controller.selectLab(controller.selectedLab);
-        if (index === 1 && controller.selectedSession) controller.selectSession(controller.selectedSession);
-        if (index === 2) editor.refresh();
-    }
     function openSettings() {
         settingsLoader.returnFocus = activeFocusItem;
         settingsLoader.active = true;
     }
+    function showPage(index) {
+        controller.manualGeneration += 1;
+        controller.page = index;
+        if (index === 0 && controller.selectedLab)
+            controller.selectLab(controller.selectedLab);
+        if (index === 1 && controller.selectedSession)
+            controller.selectSession(controller.selectedSession);
+        if (index === 2)
+            editor.refresh();
+    }
 
-    onClosing: event => {
-        if (!window.allowClose && (window.editor.dirty || window.api.busy)) {
-            event.accepted = false;
-            windowDialogs.confirmClose();
+    Material.accent: Studio.Theme.primary
+    Material.background: Studio.Theme.surfaceContainer
+    Material.foreground: Studio.Theme.textOnSurface
+    Material.primary: Studio.Theme.surface
+    Material.theme: Studio.Theme.effectiveDark ? Material.Dark : Material.Light
+    color: Studio.Theme.surface
+    palette: Studio.Theme.controlPalette
+    font.family: Studio.Theme.fontFamily
+    font.pixelSize: Studio.Theme.bodyMedium
+    height: smoke ? (Number(Quickshell.env("CYBERLAB_STUDIO_SMOKE_HEIGHT")) || (Quickshell.env("CYBERLAB_STUDIO_SMOKE_COMPACT") === "1" ? 700 : 820)) : desktopGeometry.height
+    minimumHeight: smoke ? 0 : desktopGeometry.minimumHeight
+    minimumWidth: smoke ? 0 : desktopGeometry.minimumWidth
+    title: "CyberLab Studio" + (api.demo ? " — DEMO" : "")
+    visible: true
+    width: smoke ? (Number(Quickshell.env("CYBERLAB_STUDIO_SMOKE_WIDTH")) || (Quickshell.env("CYBERLAB_STUDIO_SMOKE_COMPACT") === "1" ? 1024 : 1280)) : desktopGeometry.width
+
+    header: Item {
+        implicitHeight: appBar.implicitHeight * Studio.Theme.zoomFactor
+
+        AppBar {
+            id: appBar
+            width: parent.width / Studio.Theme.zoomFactor
+            scale: Studio.Theme.zoomFactor
+            transformOrigin: Item.TopLeft
+            activity: window.api.loading
+            busy: window.api.busy
+            connected: window.controller.connected
+            currentIndex: window.controller.page
+            demo: window.api.demo
+            windowMaximized: window.visibility === Window.Maximized
+
+            onCloseRequested: window.close()
+            onMoveRequested: window.startSystemMove()
+            onNavigationRequested: index => window.navigate(index)
+            onMaximizeRequested: {
+                if (window.visibility === Window.Maximized)
+                    window.showNormal();
+                else
+                    window.showMaximized();
+            }
+            onRefreshRequested: window.controller.refresh()
+            onSettingsRequested: window.openSettings()
         }
     }
+
     Component.onCompleted: {
-        if (smoke) Studio.Theme.themeMode = Quickshell.env("CYBERLAB_STUDIO_SMOKE_LIGHT") === "1" ? "light" : "dark";
+        if (smoke)
+            Studio.Theme.themeMode = Quickshell.env("CYBERLAB_STUDIO_SMOKE_LIGHT") === "1" ? "light" : "dark";
         controller.refresh();
     }
-
-    header: AppBar {
-        heading: window.controller.page === 0 ? "Thư viện" : (window.controller.page === 1 ? "Thực hành" : "Tạo bài")
-        subtitle: window.controller.page === 0 ? "Chọn một bài lab để bắt đầu thực hành"
-            : (window.controller.page === 1 ? "Theo dõi phiên và tài nguyên đang chạy" : "Tạo một bài lab mới trong VM")
-        connected: window.controller.connected
-        demo: window.api.demo
-        busy: window.api.busy
-        activity: window.api.loading
-        showCreate: window.controller.page !== 2
-        onCreateRequested: window.navigate(2)
-        onRefreshRequested: window.controller.refresh()
-        onSettingsRequested: window.openSettings()
-    }
-    StudioContent {
-        id: content
-        anchors.fill: parent
-        api: window.api
-        controller: window.controller
-        dialogs: windowDialogs
-        onNavigationRequested: index => window.navigate(index)
-        onShowPageRequested: index => window.showPage(index)
-    }
-    StudioDialogs {
-        id: windowDialogs
-        anchors.fill: parent
-        api: window.api
-        controller: window.controller
-        editor: window.editor
-        onNavigationConfirmed: index => window.showPage(index)
-        onCloseConfirmed: { window.allowClose = true; window.close(); }
-    }
-    Loader {
-        id: settingsLoader
-        objectName: "settingsLoader"
-        property Item returnFocus: null
-        active: false
-        sourceComponent: Component {
-            SettingsDialog {
-                returnFocus: settingsLoader.returnFocus
-                onClosed: Qt.callLater(() => settingsLoader.active = false)
-            }
+    onClosing: event => {
+        if (!window.allowClose && (window.editor.dirty || window.api.busy || window.api.starting)) {
+            event.accepted = false;
+            windowDialogs.confirmClose();
+        } else {
+            window.closeAccepted();
         }
-        onLoaded: if (status === Loader.Ready) item.open()
+    }
+
+    StudioViewport {
+        hostWindow: window
+
+        StudioContent {
+            id: content
+
+            anchors.fill: parent
+            api: window.api
+            controller: window.controller
+            dialogs: windowDialogs
+
+            onShowPageRequested: index => window.showPage(index)
+        }
+        StudioDialogs {
+            id: windowDialogs
+
+            anchors.fill: parent
+            api: window.api
+            controller: window.controller
+            editor: window.editor
+
+            onCloseConfirmed: {
+                window.allowClose = true;
+                window.close();
+            }
+            onNavigationConfirmed: index => window.showPage(index)
+        }
+        Loader {
+            id: settingsLoader
+
+            property Item returnFocus: null
+
+            active: false
+            objectName: "settingsLoader"
+
+            sourceComponent: Component {
+                SettingsDialog {
+                    returnFocus: settingsLoader.returnFocus
+                    terminals: terminalStore
+                    guiPreferences: guiStore
+
+                    onClosed: Qt.callLater(() => settingsLoader.active = false)
+                }
+            }
+
+            onLoaded: if (status === Loader.Ready)
+                item.open()
+        }
+        TerminalPreferences {
+            id: terminalStore
+
+            backend: window.api
+        }
+        GuiPreferences {
+            id: guiStore
+
+            backend: window.api
+        }
+        Studio.StudioNotifications {
+            parent: window.Overlay.overlay
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Studio.Theme.space16
+            width: Math.min(440, parent.width - Studio.Theme.space32)
+            availableHeight: parent.height - Studio.Theme.space32
+            windowActive: window.active
+            api: window.api
+            z: 1000
+        }
     }
 }

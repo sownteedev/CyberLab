@@ -7,13 +7,20 @@ from cyberlab.session import Session
 from cyberlab.lab.environment import runtime_user, shell_environment, validate_environment, workspace
 from cyberlab.lab.networking import bridge_gateway, validate_networking
 from cyberlab.lab.dependencies import startup_order
+from cyberlab.lab.workstation import WORKSTATION_LABEL, WORKSTATION_VERSION, validate_workstation
 
 from . import RuntimeFailure
+from .machine_setup import setup_command, configure_container
 from .docker_terminal import DockerTerminal, close_stream
 from .seeding import bootstrap_command, seed_archive, seed_container
-from .identity import identity_command
+from .identity import identity_command, workstation_setup_command
 from .importing import transfer_file
 from .networking import read_host_subnets
+from .checkpoints import SystemCheckpoints
+from .desktop import DesktopRuntime
+from .software import SoftwareRuntime
+from .native_display import NativeDisplays
+from cyberlab.lab.software import enabled as software_enabled
 
 
 MANAGED_LABEL = "org.ptit.cyberlab.managed"
@@ -24,13 +31,20 @@ SESSION_LABEL = "org.ptit.cyberlab.session"
 class DockerRuntime:
     name = "docker"
 
-    def __init__(self, client=None):
+    def __init__(self, client=None, workstation_images=frozenset(), checkpoint_scope="production", native_root=None):
+        self.workstation_images = frozenset(workstation_images)
         try:
             self.client = client or docker.DockerClient(
                 base_url="unix:///var/run/docker.sock", timeout=30
             )
         except (DockerException, OSError):
             raise RuntimeFailure("Docker is unavailable; ask the administrator") from None
+        self.system_checkpoints = SystemCheckpoints(self, checkpoint_scope)
+        self.desktop = DesktopRuntime(self)
+        from pathlib import Path
+        self.native = NativeDisplays(native_root or (Path('/run/cyberlab/native') if client is None and checkpoint_scope == 'production' else None))
+        self.software = SoftwareRuntime(self, checkpoint_scope)
+        self.prepared_software = None
 
     def _resources(self, collection, session_id=None, include_stopped=False):
         labels = [f"{MANAGED_LABEL}={MANAGED_VALUE}"]
@@ -68,7 +82,11 @@ class DockerRuntime:
                     if existing.version == 4 and any(subnet.overlaps(existing) for subnet in requested):
                         raise RuntimeFailure("Static subnet overlaps an existing Docker network; choose a different subnet")
 
-    def start(self, session: Session, workspaces: dict | None = None) -> None:
+    def start(self, session: Session, workspaces: dict | None = None, system_images=None, display_context=None) -> None:
+        system_images = system_images or {}
+        expected_system_nodes = {node.id for node in session.lab.nodes if node.image in self.workstation_images}
+        if system_images and set(system_images) != expected_system_nodes:
+            raise RuntimeFailure("Saved Ubuntu system checkpoint is incomplete")
         try:
             validate_networking(session.lab)
         except ValueError as error:
@@ -86,12 +104,22 @@ class DockerRuntime:
             }
         stage = "checking network availability"
         try:
+            self.native.prepare(session, display_context)
             self._check_static_networks(session.lab)
             images = {}
             for node in session.lab.nodes:
+                if node.id in system_images:
+                    validate_workstation(node)
+                    images[node.id] = self.system_checkpoints.restore_image(session, node, system_images[node.id])
+                    continue
                 stage = f"inspecting local image for node {node.id}"
                 try:
-                    image = self.client.images.get(node.image)
+                    selected_image = node.image
+                    if software_enabled(node.software):
+                        if self.prepared_software is None:
+                            raise RuntimeFailure("Software preparation is unavailable")
+                        selected_image = self.prepared_software.resolve(node.software)
+                    image = self.client.images.get(selected_image)
                 except ImageNotFound:
                     raise RuntimeFailure(
                         f"Node {node.id}: image {node.image} is not preloaded. "
@@ -99,6 +127,10 @@ class DockerRuntime:
                     ) from None
                 if image.attrs.get("Config", {}).get("Volumes"):
                     raise RuntimeFailure(f"Node {node.id}: image {node.image} declares volumes, which are not allowed in this MVP")
+                if node.image in self.workstation_images:
+                    validate_workstation(node)
+                    if (image.attrs.get("Config", {}).get("Labels") or {}).get(WORKSTATION_LABEL) != WORKSTATION_VERSION:
+                        raise RuntimeFailure("Ubuntu image has not been prepared by the reviewed administrator tool")
                 images[node.id] = image.id
             networks = {}
             for network in session.lab.networks:
@@ -109,9 +141,13 @@ class DockerRuntime:
                         subnet=network.subnet, gateway=bridge_gateway(network),
                     )])
                 networks[network.id] = self.client.networks.create(
-                    f"{prefix}-{network.id}", driver="bridge", internal=True, labels=labels, **configuration,
+                    f"{prefix}-{network.id}", driver="bridge", internal=not network.internet, labels=labels, **configuration,
                 )
             containers = {}
+            internet = None
+            if any(node.image in self.workstation_images and not node.networks for node in session.lab.nodes):
+                internet = self.client.networks.create(f"{prefix}--standalone-internet", driver="bridge", internal=False,
+                                                      labels=labels, options={"com.docker.network.bridge.enable_icc": "false"})
             for node in startup_order(session.lab.nodes):
                 stage = f"configuring node {node.id}"
                 for dependency in node.wait_for:
@@ -122,6 +158,9 @@ class DockerRuntime:
                     if dependency_container.status != "running":
                         raise RuntimeFailure(f"Node {node.id} dependency {dependency} stopped during startup")
                 options = {}
+                workstation = node.image in self.workstation_images
+                provision_setup = workstation and node.setup is not None and node.id not in system_images
+                provision_user = workstation and node.user.name != "student" and node.id not in system_images and not provision_setup
                 addresses = dict(node.addresses)
                 if node.dns:
                     options["dns"] = list(node.dns)
@@ -129,14 +168,22 @@ class DockerRuntime:
                     options["extra_hosts"] = {hostname: address for hostname, address in node.extra_hosts}
                 tmpfs = {"/tmp": "rw,noexec,nosuid,nodev,size=16m"}
                 command = list(node.command)
-                if node.id in archives:
+                if node.id in archives and node.id not in system_images and not provision_setup:
                     options["stdin_open"] = True
                     command = bootstrap_command(node.command, workspace(node))
                 if node.user:
                     command = identity_command(node, command)
-                    tmpfs[node.user.home] = f"rw,noexec,nosuid,nodev,size=16m,uid={node.user.uid},gid={node.user.gid},mode=0700"
+                    if not workstation:
+                        tmpfs[node.user.home] = f"rw,noexec,nosuid,nodev,size=16m,uid={node.user.uid},gid={node.user.gid},mode=0700"
                     options["environment"] = shell_environment(node)
                     options["working_dir"] = node.user.home
+                    if provision_user:
+                        options["working_dir"] = "/"
+                        command = workstation_setup_command(node, command)
+                    if provision_setup:
+                        options['stdin_open'] = True
+                        options['working_dir'] = '/'
+                        command = setup_command(node, command)
                 aliases = [node.id, *node.aliases]
                 if node.networks:
                     first_network = networks[node.networks[0]].id
@@ -147,17 +194,31 @@ class DockerRuntime:
                         )
                     }
                 else:
-                    options["network_mode"] = "none"
+                    if workstation:
+                        options["network"] = internet.id
+                    else:
+                        options["network_mode"] = "none"
+                if workstation:
+                    tmpfs["/tmp"] = "rw,nosuid,nodev,size=128m"
+                    tmpfs["/run"] = "rw,nosuid,nodev,size=16m"
+                    options["cap_add"] = ["CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID",
+                                          "SETPCAP", "NET_BIND_SERVICE", "NET_RAW", "SYS_CHROOT", "AUDIT_WRITE", "SETFCAP"]
+                    options["init"] = True
+                    if "wireshark" in node.software.apps:
+                        options["cap_add"] += ["NET_ADMIN"]
+                    if node.software.gui:
+                        options["shm_size"] = "256m"
                 stage = f"creating container for node {node.id}"
+                options.update(self.native.options(session, node))
                 container = self.client.containers.create(
                     images[node.id], command=command, entrypoint=[""],
                     name=f"{prefix}-{node.id}", hostname=node.hostname or node.id, labels=labels,
-                    user=runtime_user(node), privileged=False, cap_drop=["ALL"],
-                    security_opt=["no-new-privileges:true"], read_only=True,
+                    user="0:0" if provision_user or provision_setup else runtime_user(node), privileged=False, cap_drop=["ALL"],
+                    security_opt=[] if workstation else ["no-new-privileges:true"], read_only=not workstation,
                     tmpfs=tmpfs,
                     mem_limit=f"{node.resources.memory_mb}m", memswap_limit=f"{node.resources.memory_mb}m",
                     nano_cpus=node.resources.cpu_millicores * 1_000_000,
-                    pids_limit=64, restart_policy={"Name": "no"},
+                    pids_limit=(512 if node.software.gui else 256) if workstation else 64, restart_policy={"Name": "no"},
                     log_config=LogConfig(type="local", config={
                         "max-size": "1m", "max-file": "1", "compress": "false",
                     }),
@@ -169,7 +230,9 @@ class DockerRuntime:
                     networks[network_id].connect(container, aliases=aliases, **({"ipv4_address": addresses[network_id]} if network_id in addresses else {}))
                 stage = f"starting node {node.id}; check its image command, shell and configured account"
                 container.start()
-                if node.id in archives:
+                if provision_setup:
+                    configure_container(container, node)
+                if node.id in archives and node.id not in system_images and not provision_setup:
                     try:
                         if node.user:
                             seed_container(container, archives[node.id], user=runtime_user(node))
@@ -177,6 +240,7 @@ class DockerRuntime:
                             seed_container(container, archives[node.id])
                     except RuntimeFailure as error:
                         raise RuntimeFailure(f"Node {node.id}, workspace {workspace(node)}: {error}") from None
+                self.native.verify_guest(self, session, node, container)
             if not self.running(session):
                 raise RuntimeFailure("A node exited during startup")
         except (DockerException, OSError):
@@ -201,8 +265,8 @@ class DockerRuntime:
                 command = identity_command(node, command)
             execution = self.client.api.exec_create(
                 matches[0].id, cmd=command, stdin=True, stdout=True,
-                stderr=True, tty=True, privileged=False, user=runtime_user(node),
-                environment=shell_environment(node), workdir=node.user.home if node.user else "/tmp",
+                stderr=True, tty=True, privileged=False, user=node.user.name if node.image in self.workstation_images else runtime_user(node),
+                environment={**shell_environment(node), **(self.native.environment(session, node) if node.image in self.workstation_images else {})}, workdir=node.user.home if node.user else "/tmp",
             )
             stream = self.client.api.exec_start(execution["Id"], tty=True, socket=True)
             return DockerTerminal(self.client.api, execution["Id"], stream)
@@ -248,6 +312,7 @@ class DockerRuntime:
             raise RuntimeFailure("Cannot access workspace node") from None
 
     def remove(self, session_id: str) -> None:
+        self.native.remove(session_id)
         self._remove(session_id)
 
     def _remove(self, session_id=None):
@@ -278,4 +343,5 @@ class DockerRuntime:
             raise RuntimeFailure("Cannot inspect runtime state") from None
 
     def cleanup(self) -> None:
+        self.native.cleanup()
         self._remove()

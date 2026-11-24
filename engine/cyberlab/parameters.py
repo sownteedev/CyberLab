@@ -118,6 +118,7 @@ def resolve_parameters(lab, supplied: dict[str, str] | None, seed: str):
             wait_for=tuple(substitute(item) for item in node.wait_for),
             command=tuple(substitute(item) for item in node.command),
             seed=tuple(substitute_seed(entry) for entry in node.seed),
+            system_seed=tuple(substitute_seed(entry) for entry in node.system_seed),
             addresses=tuple((network, substitute(address)) for network, address in node.addresses),
             dns=tuple(substitute(item) for item in node.dns),
             extra_hosts=tuple((substitute(hostname), substitute(address)) for hostname, address in node.extra_hosts),

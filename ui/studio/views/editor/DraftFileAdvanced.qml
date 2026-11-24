@@ -7,46 +7,97 @@ import "../.." as Studio
 
 ColumnLayout {
     id: panel
+
     required property var editor
     required property var node
-    spacing: Studio.Theme.space8
+
     function sources() {
         const paths = [];
         (editor.draft ? editor.draft.assets : []).forEach(asset => {
             paths.push(asset.path);
             const parts = asset.path.split("/");
-            while (parts.length > 2) { parts.pop(); paths.push(parts.join("/")); }
+            while (parts.length > 2) {
+                parts.pop();
+                paths.push(parts.join("/"));
+            }
         });
         return paths.filter((path, index) => paths.indexOf(path) === index).sort();
     }
-    Label { text: "Ánh xạ của máy"; font.weight: Font.Medium }
+
+    spacing: Studio.Theme.space8
+
+    Label {
+        font.weight: Font.Medium
+        text: "Ánh xạ của máy"
+    }
     Repeater {
         model: panel.node ? panel.node.files || [] : []
+
         RowLayout {
             id: mappingRow
-            required property var modelData
+
             required property int index
+            required property var modelData
+
             Layout.fillWidth: true
-            Label { Layout.fillWidth: true; text: mappingRow.modelData.source + " → " + Model.destination(panel.node, mappingRow.modelData.target); wrapMode: Text.WrapAnywhere }
-            StudioButton { text: "Bỏ ánh xạ"; flat: true; onClicked: panel.editor.removeMapping(panel.editor.selectedNode, mappingRow.index) }
+
+            Label {
+                Layout.fillWidth: true
+                text: mappingRow.modelData.source + " → " + Model.destination(panel.node, mappingRow.modelData.target)
+                wrapMode: Text.WrapAnywhere
+            }
+            StudioButton {
+                flat: true
+                text: "Bỏ ánh xạ"
+
+                onClicked: panel.editor.removeMapping(panel.editor.selectedNode, mappingRow.index)
+            }
         }
     }
-    StudioComboBox { id: source; Layout.fillWidth: true; model: panel.sources(); Accessible.name: "Nguồn ánh xạ" }
-    StudioTextField { id: target; Layout.fillWidth: true; placeholderText: "Đích tương đối, hoặc . để dùng home" }
+    StudioComboBox {
+        id: source
+
+        Accessible.name: "Nguồn ánh xạ"
+        Layout.fillWidth: true
+        model: panel.sources()
+    }
+    StudioTextField {
+        id: target
+
+        Layout.fillWidth: true
+        placeholderText: "Đích tương đối, hoặc . để dùng home"
+    }
     StudioButton {
-        text: "Thêm ánh xạ"
         enabled: !!panel.node && source.currentIndex >= 0 && !!target.text.trim()
+        text: "Thêm ánh xạ"
+
         onClicked: panel.editor.addMapping(panel.node.id, source.currentText, target.text.trim())
     }
-    Label { text: "Tài nguyên trong bản nháp"; font.weight: Font.Medium }
+    Label {
+        font.weight: Font.Medium
+        text: "Tài nguyên trong bản nháp"
+    }
     Repeater {
         model: panel.editor.draft ? panel.editor.draft.assets : []
+
         RowLayout {
             id: assetRow
+
             required property var modelData
+
             Layout.fillWidth: true
-            Label { Layout.fillWidth: true; text: assetRow.modelData.path; wrapMode: Text.WrapAnywhere }
-            StudioButton { text: "Xóa"; flat: true; onClicked: panel.editor.removeAsset(assetRow.modelData.path) }
+
+            Label {
+                Layout.fillWidth: true
+                text: assetRow.modelData.path
+                wrapMode: Text.WrapAnywhere
+            }
+            StudioButton {
+                flat: true
+                text: "Xóa"
+
+                onClicked: panel.editor.removeAsset(assetRow.modelData.path)
+            }
         }
     }
 }

@@ -5,8 +5,14 @@ from .assets import valid_path
 MAX_CONFIG_BYTES = 64 * 1024
 
 
+class LabtainerSourceError(ValueError):
+    def __init__(self, source, line, message):
+        self.source = source
+        self.line = line
+        super().__init__(f"{source}:{line}: {message}")
+
 def fail(source, line, message):
-    raise ValueError(f"{source}:{line}: {message}")
+    raise LabtainerSourceError(source, line, message)
 
 
 def text_file(files, path):

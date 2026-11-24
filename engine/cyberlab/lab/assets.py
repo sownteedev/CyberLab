@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import stat
 
-from .models import SeedEntry
+from .models import SeedEntry, FileMapping
 
 MAX_BYTES = 1024 * 1024
 MAX_ENTRIES = 128
@@ -72,7 +72,7 @@ def _open_directory(name, parent=None, trusted=True, is_home=False):
         raise
 
 def snapshot_lab(lab, project):
-    if not any(node.files for node in lab.nodes):
+    if not any(node.files or node.setup and (node.setup.files or node.setup.home) for node in lab.nodes):
         return lab
     project_path = Path(os.path.abspath(project))
     is_home = len(project_path.parts) > 1 and project_path.parts[1] == "home"
@@ -97,6 +97,8 @@ def snapshot_lab(lab, project):
                     raise AssetError("Invalid or too deeply nested asset path")
                 if path in entries:
                     if data is None and entries[path] is None:
+                        return
+                    if path.startswith('_system/') and entries[path] == data:
                         return
                     raise AssetError("Overlapping initial file paths")
                 total_entries += 1
@@ -143,7 +145,12 @@ def snapshot_lab(lab, project):
                             raise AssetError("Asset changed while reading")
                     add(target, data)
 
-            for mapping in node.files:
+            system_mappings = tuple(FileMapping(entry.source, '_system' + entry.target)
+                                    for entry in node.setup.files) if node.setup else ()
+            if system_mappings and any(mapping.target == '_system' or mapping.target.startswith('_system/')
+                                       for mapping in node.files):
+                raise AssetError('Home mapping conflicts with reserved setup staging path')
+            for mapping in (*node.files, *system_mappings):
                 parent = os.dup(root)
                 try:
                     parts = mapping.source.split("/")
@@ -159,9 +166,30 @@ def snapshot_lab(lab, project):
                     read_entry(parent, parts[-1], mapping.target)
                 finally:
                     os.close(parent)
-            seed = tuple(SeedEntry(path, data) for path, data in sorted(entries.items()))
+            seed = tuple(SeedEntry(path, data) for path, data in sorted(entries.items())
+                         if not system_mappings or path != '_system' and not path.startswith('_system/'))
+            system_seed = tuple(SeedEntry(path[len('_system/'):], data) for path, data in sorted(entries.items())
+                                if system_mappings and path.startswith('_system/'))
             validate_seed(seed)
-            nodes.append(replace(node, seed=seed))
+            validate_seed(system_seed)
+            if node.setup:
+                home_entries = {entry.path: entry for entry in seed}
+                system_entries = {entry.path: entry for entry in system_seed}
+                for entry in node.setup.home:
+                    if entry.path not in home_entries:
+                        raise AssetError('Home permission refers to a missing file')
+                    if home_entries[entry.path].data is not None and int(entry.mode, 8) & 0o7000:
+                        raise AssetError('Special permissions are only supported on directories')
+                for entry in node.setup.files:
+                    if system_entries[entry.target[1:]].data is not None and int(entry.mode, 8) & 0o7000:
+                        raise AssetError('Special permissions are only supported on directories')
+            loaded_node = replace(node, seed=seed, system_seed=system_seed)
+            from .setup import validate_setup_seed
+            try:
+                validate_setup_seed(loaded_node)
+            except ValueError as error:
+                raise AssetError(str(error)) from None
+            nodes.append(loaded_node)
         return replace(lab, nodes=tuple(nodes))
     except OSError:
         raise AssetError("Cannot safely read lab assets") from None

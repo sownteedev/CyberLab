@@ -6,6 +6,7 @@ import yaml
 
 from .assets import valid_path
 from .labtainer_archive import read_labtainer_archive
+from .labtainer_compatibility import LabtainerCompatibilityError, requirement_issues, source_files
 from .labtainer_assessment import parse_goals_config, parse_results_config
 from .labtainer_parameters import parse_parameter_config
 from .labtainer_source import fail, normalize_id, text_file
@@ -19,16 +20,10 @@ REPORT_PATH = "assets/docs/labtainer-import.json"
 
 
 def convert_labtainer_files(file_map, target_id=None, target_title=None):
-    starts = [path for path, data in file_map.items() if data is not None
-              and (path == "config/start.config" or path.endswith("/config/start.config"))]
-    if len(starts) != 1:
-        raise ValueError("Labtainer package requires exactly one config/start.config")
-    root = starts[0].removesuffix("config/start.config")
-    ancestors = {str(parent) for parent in PurePosixPath(root).parents} | {root.rstrip("/")}
-    if any(not path.startswith(root) and not (data is None and path in ancestors)
-           for path, data in file_map.items()):
-        raise ValueError("Labtainer archive contains entries outside the selected Lab root")
-    files = {path[len(root):]: data for path, data in file_map.items() if path.startswith(root)}
+    root, files = source_files(file_map)
+    issues = requirement_issues(files)
+    if any(issue["severity"] == "blocker" for issue in issues):
+        raise LabtainerCompatibilityError(issues)
     start = parse_start_config(text_file(files, "config/start.config"))
     operations = parse_parameter_config(text_file(files, "config/parameter.config"), start.nodes)
     results, result_ids = parse_results_config(text_file(files, "instr_config/results.config"), start.nodes)
@@ -41,6 +36,10 @@ def convert_labtainer_files(file_map, target_id=None, target_title=None):
     known_configs = {"config/start.config", "config/parameter.config", "config/about.txt",
                      "instr_config/results.config", "instr_config/goals.config"}
     for path, data in sorted(files.items()):
+        if path == "config/keywords.txt":
+            text_file(files, path)
+            assets["assets/docs/labtainer-keywords.txt"] = data
+            continue
         if path in known_configs or (PurePosixPath(path).parent == PurePosixPath("config") and path.endswith(".quiz")):
             if data is None:
                 fail(path, 1, "configuration must be a regular file, not a directory")
@@ -77,7 +76,7 @@ def convert_labtainer_files(file_map, target_id=None, target_title=None):
             for path, data in sorted(files.items())], ensure_ascii=True).encode("utf-8")).hexdigest(),
         "nodes": [{"source": name, "id": node["id"], "user": node["user"]["name"],
                    "review": ["image", "command", "uid", "gid", "shell"]} for name, node in start.nodes.items()],
-        "unbuilt_image_sources": image_sources,
+        "unbuilt_image_sources": image_sources, "compatibility_issues": issues,
         "notes": ["No Docker image was substituted, built or pulled. Select an approved image and startup argv for every node.",
                   "UID/GID 1000 and /bin/bash are editable suggestions, not accounts discovered in an image. Verify runtime readiness.",
                   "CyberLab generates a new instance seed; imported parameter values do not reproduce a previous Labtainer run.",

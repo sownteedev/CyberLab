@@ -3,7 +3,8 @@ from hashlib import sha256
 import re
 
 from cyberlab.archives import json_object, read_zip
-from cyberlab.assessment_checks import combined_status
+from cyberlab.assessment_checks import assessment_status
+from cyberlab.result_timestamps import bounded_instances
 from cyberlab.submission import MAX_SUBMISSION_BYTES
 from cyberlab.workspace import relative_path
 
@@ -35,13 +36,55 @@ def _criteria(report, key, limit):
         raise ValueError("Invalid report criteria")
     identifiers = set()
     for item in entries:
-        if not isinstance(item, dict) or item.get("status") not in ("PASS", "FAIL", "ERROR"):
+        allowed = ("PASS", "FAIL", "ERROR", "COLLECTED") if key == "results" else ("PASS", "FAIL", "ERROR")
+        if not isinstance(item, dict) or item.get("status") not in allowed:
             raise ValueError("Invalid criterion status")
+        if "instances" in item:
+            _result_instances(item)
+        if item.get("status") == "COLLECTED" and "instances" not in item:
+            value = item.get("value")
+            if type(value) not in (str, int, bool) or (isinstance(value, str) and len(value.encode("utf-8")) > 65536):
+                raise ValueError("Invalid collected result value")
         identifier = _text(item.get("id"))
         if identifier in identifiers:
             raise ValueError("Duplicate criterion ID")
         identifiers.add(identifier)
     return entries
+
+def _result_instances(item):
+    instances = item["instances"]
+    if item.get("operator") != "collect" or not isinstance(instances, list) or "value" in item:
+        raise ValueError("Invalid result instances")
+    bounded_instances(instances)
+    if item.get("status") == "COLLECTED" and not instances:
+        raise ValueError("Collected timeline must contain instances")
+    previous = None
+    for instance in instances:
+        if not isinstance(instance, dict) or type(instance.get("value")) not in (str, bool, int):
+            raise ValueError("Invalid result instance")
+        point = "timestamp" in instance
+        keys = {"timestamp", "value"} if point else {"start", "end", "value"}
+        local = item.get("field_type") == "time_delim"
+        if local:
+            keys.add("clock")
+            if point or instance.get("clock") != "capture-local":
+                raise ValueError("Invalid capture clock")
+        if set(instance) != keys:
+            raise ValueError("Invalid result instance fields")
+        start = datetime.fromisoformat(_text(instance["timestamp" if point else "start"]))
+        if (start.tzinfo is None) != local:
+            raise ValueError("Invalid result timestamp timezone")
+        if previous is not None and start < previous:
+            raise ValueError("Result instances are not chronological")
+        previous = start
+        if not point:
+            if instance["end"] is None:
+                if not local or instance is not instances[-1]:
+                    raise ValueError("Only the final capture range can be open")
+            else:
+                end = datetime.fromisoformat(_text(instance["end"]))
+                if (end.tzinfo is None) != local or end <= start:
+                    raise ValueError("Invalid result time range")
 
 
 def _evidence(report, manifest, entries):
@@ -177,7 +220,7 @@ def review_submission(data, filename="submission.zip"):
         _timestamp(report["created_at"])
         goals = _criteria(report, "goals", 32)
         results = _criteria(report, "results", 64)
-        if report["status"] != combined_status([item["status"] for item in (goals or results)]):
+        if report["status"] != assessment_status(goals, results):
             raise ValueError("Report status does not match its criteria")
         paths = _evidence(report, manifest, entries)
         if (type(manifest.get("submission_ready")) is not bool

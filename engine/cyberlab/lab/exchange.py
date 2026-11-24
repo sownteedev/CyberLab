@@ -8,6 +8,7 @@ from cyberlab.archives import json_object, read_zip
 from .package import MAX_DEFINITION, MAX_PACKAGE, MAX_PATHS, check_package, digest
 
 FORMAT = "cyberlab-lab/v1"
+PROTECTED_FORMAT = "cyberlab-lab/v2"
 MANIFEST = "manifest.json"
 DEFINITION = "lab.yaml"
 MAX_ARCHIVE = 4 * 1024 * 1024
@@ -24,7 +25,7 @@ def _metadata(path, data):
             "sha256": "" if data is None else sha256(data).hexdigest()}
 
 
-def create_package(definition, assets, lab):
+def create_package(definition, assets, lab, edit_protection=None):
     assets = dict(assets)
     check_package(definition, assets)
     definition_bytes = definition.encode("utf-8")
@@ -37,6 +38,9 @@ def create_package(definition, assets, lab):
         "assets": [_metadata(path, data) for path, data in sorted(assets.items())],
         "content_digest": digest(definition, assets),
     }
+    if edit_protection is not None:
+        from cyberlab.authoring.protection import validate_verifier
+        manifest.update(format=PROTECTED_FORMAT, edit_protection=validate_verifier(edit_protection))
     manifest_bytes = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
     if len(manifest_bytes) > MAX_MANIFEST:
         raise LabPackageError("Lab package manifest exceeds its limit")
@@ -59,8 +63,13 @@ def read_package(data):
         entries = read_zip(data, max_archive=MAX_ARCHIVE, max_entries=MAX_PATHS + 2,
                            max_content=MAX_PACKAGE + MAX_MANIFEST)
         manifest = json_object(entries.pop(MANIFEST, None), MAX_MANIFEST)
-        if manifest.get("format") != FORMAT:
+        if manifest.get("format") not in {FORMAT, PROTECTED_FORMAT}:
             raise ValueError("Unsupported Lab package format")
+        if manifest["format"] == PROTECTED_FORMAT:
+            from cyberlab.authoring.protection import validate_verifier
+            validate_verifier(manifest.get("edit_protection"))
+        elif "edit_protection" in manifest:
+            raise ValueError("Editing protection requires Lab package v2")
         definition_bytes = entries.pop(DEFINITION, None)
         if not isinstance(definition_bytes, bytes) or len(definition_bytes) > MAX_DEFINITION:
             raise ValueError("Lab package definition is missing or too large")

@@ -7,14 +7,18 @@ import json
 from dbus_next import Message, MessageType, Variant
 
 from cyberlab.lab import LabError, LabNotFoundError
+from cyberlab.lab.labtainer_compatibility import LabtainerCompatibilityError
 from cyberlab.lab.catalog import LabInUseError
 from cyberlab.lab.environment import workspace
+from cyberlab.lab.workstation import UBUNTU_IMAGE
 from cyberlab.lab.networking import bridge_gateway
+from cyberlab.lab.topics import choices as topic_choices
 from cyberlab.policy import PolicyDenied
 from cyberlab.quiz import QuizRequired, QuizRevisionChanged, public_questions, requires_pre_start
 from cyberlab.runtime import RuntimeFailure
 from cyberlab.service import CheckReportNotFound, DocumentationNotFound, SessionBusy, SessionLimit, SessionNotFound
 from cyberlab.authoring import DraftConflict, DraftLimit, DraftNotFound
+from cyberlab.authoring.protection import EditLocked, EditPassword
 from . import authoring as draft_api
 from cyberlab.terminal import TerminalBusy, TerminalNotFound
 from cyberlab.workspace import WorkspaceNotFound
@@ -29,6 +33,9 @@ def lab_fields(lab, digest=""):
         "id": Variant("s", lab.metadata.id),
         "name": Variant("s", lab.metadata.name),
         "version": Variant("s", lab.metadata.version),
+        "difficulty": Variant("s", lab.metadata.difficulty or ""),
+        "tags": Variant("as", list(lab.metadata.tags)),
+        "tag_labels": Variant("a{ss}", {tag: label for tag, label in topic_choices() if tag in lab.metadata.tags}),
         "digest": Variant("s", digest),
         "nodes": Variant("a(sas)", [[node.id, list(node.networks)] for node in lab.nodes]),
         "networks": Variant("as", [network.id for network in lab.networks]),
@@ -49,6 +56,8 @@ def environment_fields(lab):
 
 def session_fields(session):
     return {
+        "prepared_gui_nodes": Variant("as", [node.id for node in session.lab.nodes if node.software.gui and (node.software.environment or session.checkpoint_at)]),
+        "desktop_nodes": Variant("as", [node.id for node in session.lab.nodes if node.image == UBUNTU_IMAGE]),
         **configuration_fields(session.lab),
         **labedit_fields(session.lab),
         "id": Variant("s", session.id),
@@ -78,6 +87,7 @@ def configuration_fields(lab):
     counts = {node.id: node.terminal_count for node in lab.nodes}
     return {
         "network_config": Variant("a(sss)", [[network.id, network.subnet or "", bridge_gateway(network) if network.subnet else ""] for network in lab.networks]),
+        "network_internet": Variant("a{sb}", {network.id: network.internet for network in lab.networks}),
         "addresses": Variant("a(sss)", [[node.id, network_id, address] for node in lab.nodes for network_id, address in node.addresses]),
         "dns": Variant("a(sas)", [[node.id, list(node.dns)] for node in lab.nodes]),
         "terminal_counts": Variant("a(su)", [[node.id, node.terminal_count] for node in lab.nodes]),
@@ -125,6 +135,21 @@ def import_fields(record):
 
 
 class Server:
+    def lab_fields(self, lab):
+        result = lab_fields(lab)
+        result["edit_protected"] = Variant("b", bool(self.authoring and self.authoring.protection.protected("lab", lab.metadata.id)))
+        return result
+
+    def session_fields(self, session):
+        result = session_fields(session)
+        native = getattr(self.engine.runtime, 'native', None)
+        if native is not None:
+            statuses = {node.id: native.status(session, node.id) for node in session.lab.nodes}
+            result['gui_backends'] = Variant('a{ss}', {node: status.get('backend', '') for node, status in statuses.items()})
+            result['gui_warnings'] = Variant('a{ss}', {node: status.get('fallback_reason', '') for node, status in statuses.items()})
+            result['gui_states'] = Variant('a{ss}', {node: status.get('state', '') for node, status in statuses.items()})
+        return result
+
     def __init__(self, bus, engine, allowed_uids, authoring=None):
         self.bus = bus
         self.engine = engine
@@ -146,10 +171,19 @@ class Server:
             return Message.new_error(message, "org.freedesktop.DBus.Error.UnknownMethod", "Unknown method")
         if message.signature != contract[0]:
             return Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Invalid method signature")
+        if message.member in {'PrepareDesktopContext', 'ReleaseDesktopContext', 'StartLabWithDesktop', 'ResumeSessionWithDesktop', 'ResetSessionWithDesktop', 'ReconnectNativeDesktop'}:
+            if len(json.dumps(message.body).encode()) > 4096:
+                return Message.new_error(message, 'org.freedesktop.DBus.Error.InvalidArgs', 'Desktop request exceeds its limit')
         if message.member in draft_api.METHODS and not draft_api.bounded(message.member, message.body):
             return Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Authoring payload exceeds its limit")
         if message.member == "WriteTerminal" and len(message.body[1]) > 4096:
             return Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Terminal writes are limited to 4096 bytes")
+        if message.member == "WriteDesktop" and len(message.body[1]) > 65536:
+            return Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Desktop payload exceeds its limit")
+        if message.member in {"GetDesktopStatus", "PrepareDesktop", "OpenDesktop", "ConfirmDesktop", "ReadDesktop", "WriteDesktop", "CloseDesktop"}:
+            identifiers = message.body[:1] if message.member in {"ConfirmDesktop", "ReadDesktop", "WriteDesktop", "CloseDesktop"} else message.body
+            if any(not value or len(value) > 64 for value in identifiers):
+                return Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Invalid desktop identity")
         if message.member == "ImportFile" and (len(message.body[3]) > MAX_IMPORT_BYTES or len(message.body[2]) > 64):
             return Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Import payload or name exceeds its limit")
         if message.member == "ImportWorkspace" and (len(message.body[2].encode("utf-8")) > 128 or len(message.body[3]) > MAX_WORKSPACE_UPLOAD):
@@ -197,12 +231,50 @@ class Server:
         return uid
 
     def dispatch(self, member, body, uid, sender=None):
+        if member in {'PrepareDesktopContext', 'ReleaseDesktopContext', 'StartLabWithDesktop', 'ResumeSessionWithDesktop', 'ResetSessionWithDesktop', 'ReconnectNativeDesktop'}:
+            native = getattr(self.engine.runtime, 'native', None)
+            if native is None or not native.enabled:
+                raise ValueError('Native display contexts are unavailable for this runtime')
+            if member == 'PrepareDesktopContext':
+                with self.engine._lock:
+                    return native.register(body[0], uid, sender)
+            if member == 'ReleaseDesktopContext':
+                with self.engine._lock:
+                    return native.release(body[0], uid, sender)
+            with self.engine._lock:
+                context = native.take(body[-1], uid, sender)
+            try:
+                if member == 'ReconnectNativeDesktop':
+                    with self.engine._lock:
+                        session = self.engine._desktop_session(body[0], uid)
+                        return native.reconnect(session, body[1], context)
+                with native.keepalive(context):
+                    if member == 'StartLabWithDesktop':
+                        result = self.engine.start(body[0], uid, body[1], display_context=context)
+                    else:
+                        operation = self.engine.resume if member == 'ResumeSessionWithDesktop' else self.engine.reset
+                        result = operation(body[0], uid, display_context=context)
+                return self.session_fields(result)
+            finally:
+                native.revoke(context)
         if member in draft_api.METHODS:
             return draft_api.dispatch(self.authoring, member, body, uid)
         if member == "GetVersion":
             return VERSION
+        if member == "GetDesktopStatus":
+            return json.dumps(self.engine.desktop_status(body[0], body[1], uid))
+        if member == "PrepareDesktop":
+            return self.engine.prepare_desktop(body[0], body[1], uid)
+        if member == "OpenDesktop":
+            return self.engine.open_desktop(body[0], body[1], uid, sender)
+        if member in {"ConfirmDesktop", "ReadDesktop", "WriteDesktop", "CloseDesktop"}:
+            return self.engine.desktop({"ConfirmDesktop": "ready", "ReadDesktop": "read", "WriteDesktop": "write", "CloseDesktop": "close"}[member],
+                                       body[0], uid, sender, *body[1:])
         if member == "GetCapabilities":
-            return [f"runtime:{self.engine.runtime.name}", "start", "stop", "reset", "delete-lab", "terminal", "terminal-plan", "terminal-slots", "static-networking", "seed-files", "node-environment", "documentation", "import-file", "workspace-files", "volatile-sessions", "parameters", "submission-review"] + (["session-persistence", "discard-checkpoint", "checkwork", "submissions", "submit-and-finish", "quiz", "lab-quiz"] if self.engine.practice_store is not None else []) + (["authoring", "lab-package-export", "lab-package-import", "labtainer-import"] if self.authoring is not None else [])
+            native_available = getattr(getattr(self.engine.runtime, 'native', None), 'enabled', False)
+            workstation_available = (UBUNTU_IMAGE in self.engine.policy.workstation_images
+                                    and UBUNTU_IMAGE in self.engine.policy.allowed_images)
+            return (["machine-setup-v1"] if workstation_available else []) + (["native-x11"] if native_available else []) + [f"runtime:{self.engine.runtime.name}", "start", "stop", "reset", "delete-lab", "terminal", "terminal-plan", "terminal-slots", "static-networking", "seed-files", "node-environment", "documentation", "import-file", "workspace-files", "volatile-sessions", "parameters", "submission-review"] + (["seamless-apps"] if hasattr(self.engine.runtime, "desktop") and workstation_available else []) + (["session-persistence", "discard-checkpoint", "checkwork", "submissions", "submit-and-finish", "quiz", "lab-quiz"] if self.engine.practice_store is not None else []) + (["authoring", "lab-package-export", "lab-package-import", "labtainer-import", "labtainer-inspect"] if self.authoring is not None else [])
         if member in {"GetLabDocumentation", "GetSessionDocumentation"}:
             result = self.engine.documentation(body[0], uid, session=member == "GetSessionDocumentation")
             return {key: Variant("s", value) for key, value in result.items()}
@@ -211,7 +283,7 @@ class Server:
         if member == "PrepareSubmission":
             return json.dumps(self.engine.prepare_submission(body[0], uid), ensure_ascii=True)
         if member == "FinalizeSubmission":
-            return session_fields(self.engine.finalize_submission(body[0], body[1], uid))
+            return self.session_fields(self.engine.finalize_submission(body[0], body[1], uid))
         if member == "ListCheckReports":
             return json.dumps(self.engine.check_reports(uid, session_id=body[0] or None), ensure_ascii=True)
         if member == "GetCheckReport":
@@ -253,15 +325,20 @@ class Server:
         if member in terminals:
             return self.engine.terminal(terminals[member], body[0], uid, sender, *body[1:])
         if member == "ListLabs":
-            return [lab_fields(lab) for lab in self.engine.labs()]
+            return [self.lab_fields(lab) for lab in self.engine.labs()]
         if member == "GetLab":
-            return lab_fields(self.engine.lab(body[0]))
+            return self.lab_fields(self.engine.lab(body[0]))
         if member == "DeleteLab":
+            if self.authoring:
+                with self.authoring.lifecycle_lock:
+                    result = self.engine.delete_lab(body[0], uid)
+                    self.authoring.protection.link("lab", body[0], None)
+                    return result
             return self.engine.delete_lab(body[0], uid)
         if member == "ListSessions":
-            return [session_fields(session) for session in self.engine.sessions(uid)]
+            return [self.session_fields(session) for session in self.engine.sessions(uid)]
         if member == "StartLabWithParameters":
-            return session_fields(self.engine.start(body[0], uid, dict(body[1])))
+            return self.session_fields(self.engine.start(body[0], uid, dict(body[1])))
         operations = {
             "StartLab": self.engine.start, "GetSession": self.engine.status,
             "StopSession": self.engine.stop, "ResetSession": self.engine.reset,
@@ -269,7 +346,7 @@ class Server:
             "ResumeSession": self.engine.resume,
             "DiscardSessionCheckpoint": self.engine.discard,
         }
-        return session_fields(operations[member](body[0], uid))
+        return self.session_fields(operations[member](body[0], uid))
 
     async def reply(self, message, signature, introspect):
         try:
@@ -279,6 +356,10 @@ class Server:
             else:
                 result = await asyncio.to_thread(self.dispatch, message.member, message.body, uid, message.sender)
             response = Message.new_method_return(message, signature=signature, body=[result])
+        except EditLocked as error:
+            response = Message.new_error(message, f"{ERROR_PREFIX}.EditLocked", str(error))
+        except EditPassword as error:
+            response = Message.new_error(message, f"{ERROR_PREFIX}.EditPassword", str(error))
         except PermissionError:
             response = Message.new_error(message, f"{ERROR_PREFIX}.AccessDenied", "Caller is not authorized")
         except (SessionNotFound, CheckReportNotFound, LabNotFoundError, TerminalNotFound, DocumentationNotFound, DraftNotFound, WorkspaceNotFound):
@@ -297,6 +378,8 @@ class Server:
             response = Message.new_error(message, f"{ERROR_PREFIX}.QuizRequired", str(error))
         except QuizRevisionChanged as error:
             response = Message.new_error(message, f"{ERROR_PREFIX}.Conflict", str(error))
+        except LabtainerCompatibilityError as error:
+            response = Message.new_error(message, f"{ERROR_PREFIX}.LabtainerCompatibility", str(error))
         except ValueError:
             response = Message.new_error(message, "org.freedesktop.DBus.Error.InvalidArgs", "Invalid request values")
         except PolicyDenied as error:
@@ -314,6 +397,8 @@ class Server:
             logging.warning("Could not deliver D-Bus reply")
 
     async def shutdown(self):
+        if self.authoring is not None and self.authoring.software is not None:
+            await asyncio.to_thread(self.authoring.software.shutdown)
         self.closing = True
         if self.tasks:
             await asyncio.gather(*tuple(self.tasks), return_exceptions=True)

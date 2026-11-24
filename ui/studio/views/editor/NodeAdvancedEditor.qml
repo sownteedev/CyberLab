@@ -1,5 +1,5 @@
 import QtQuick
-import QtQuick.Controls.Material
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import "../.."
 import "../.." as Studio
@@ -7,132 +7,232 @@ import "../.." as Studio
 ColumnLayout {
     id: panel
     required property var editor
+    readonly property var node: editor.document && editor.document.nodes[nodeIndex] ? editor.document.nodes[nodeIndex] : null
     required property int nodeIndex
-    property var node: editor.document && editor.document.nodes[nodeIndex] ? editor.document.nodes[nodeIndex] : null
-    spacing: Studio.Theme.space16
     enabled: !editor.backend.busy
+    spacing: Studio.Theme.space8
 
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Studio.Theme.space8
-        Label { Layout.fillWidth: true; text: panel.node ? panel.node.image : ""; wrapMode: Text.WrapAnywhere; color: Studio.Theme.textOnSurfaceVariant }
-        Label { text: "Hostname" }
-        StudioTextField { Layout.fillWidth: true; text: panel.node ? panel.node.hostname || "" : ""; placeholderText: "Mặc định theo mã máy"; onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "hostname", text) }
-        Label { text: "Bộ nhớ (MiB)" }
-        SpinBox {
-            implicitHeight: Studio.Theme.controlHeight
-            from: 64; to: 512; stepSize: 16
-            value: panel.node && panel.node.resources ? panel.node.resources.memory_mb : 128
-            onValueModified: panel.editor.change("nodes", panel.nodeIndex, "resources",
-                Object.assign({}, panel.node.resources || {}, {memory_mb: value}))
-        }
-        Label { text: "CPU (millicores)" }
-        SpinBox {
-            implicitHeight: Studio.Theme.controlHeight
-            from: 100; to: 1000; stepSize: 100
-            value: panel.node && panel.node.resources ? panel.node.resources.cpu_millicores : 500
-            onValueModified: panel.editor.change("nodes", panel.nodeIndex, "resources",
-                Object.assign({}, panel.node.resources || {}, {cpu_millicores: value}))
-        }
-        Label { text: "Nhân bản container (Clone)" }
-        SpinBox {
-            implicitHeight: Studio.Theme.controlHeight
-            from: 1; to: 4
-            value: panel.node ? panel.node.clone || 1 : 1
-            onValueModified: panel.editor.change("nodes", panel.nodeIndex, "clone", value)
-        }
-        Label { text: "Nhóm terminal" }
-        StudioTextField {
+    EditorDisclosure {
+        objectName: "nodeResourcesAdvanced"
+        title: qsTr("Tài nguyên")
+        expanded: true
+        GridLayout {
             Layout.fillWidth: true
-            placeholderText: "Ví dụ: client"
-            text: panel.node ? panel.node.terminal_group || "" : ""
-            onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "terminal_group", text.trim())
-        }
-        Label { text: "Tiêu đề terminal" }
-        StudioTextField {
-            Layout.fillWidth: true
-            placeholderText: "Ví dụ: client@lab"
-            text: panel.node ? panel.node.terminal_title || "" : ""
-            onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "terminal_title", text.trim())
-        }
-        Label { text: "Alias nội bộ (cách nhau bằng dấu phẩy)" }
-        StudioTextField {
-            Layout.fillWidth: true
-            placeholderText: "client-box"
-            text: panel.node ? (panel.node.aliases || []).join(", ") : ""
-            onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "aliases",
-                text.split(",").map(value => value.trim()).filter(Boolean))
-        }
-        Label { text: "Hosts bổ sung (host=IPv4, cách nhau bằng dấu phẩy)" }
-        StudioTextField {
-            Layout.fillWidth: true
-            placeholderText: "server=10.0.0.2"
-            text: panel.node ? Object.keys(panel.node.extra_hosts || {}).map(host => host + "=" + panel.node.extra_hosts[host]).join(", ") : ""
-            onEditingFinished: {
-                const hosts = {};
-                text.split(",").map(value => value.trim()).filter(Boolean).forEach(item => {
-                    const parts = item.split("=");
-                    if (parts.length === 2) hosts[parts[0].trim()] = parts[1].trim();
-                });
-                panel.editor.change("nodes", panel.nodeIndex, "extra_hosts", hosts);
+            columns: width >= 620 ? 3 : width >= 400 ? 2 : 1
+            columnSpacing: Studio.Theme.space16
+            rowSpacing: Studio.Theme.space12
+            EditorField {
+                label: qsTr("RAM (MiB)")
+                EditorNumberField {
+                    objectName: "nodeResourceMemory"
+                    Accessible.name: qsTr("RAM (MiB)")
+                    from: panel.node && panel.node.software && panel.node.software.gui ? 1024 : 64
+                    implicitHeight: Studio.Theme.controlHeight
+                    stepSize: 16
+                    to: panel.node && panel.node.image === "cyberlab/ubuntu:24.04-1" ? 2048 : 512
+                    value: panel.node && panel.node.resources ? panel.node.resources.memory_mb || 128 : 128
+                    onValueModified: panel.editor.change("nodes", panel.nodeIndex, "resources", Object.assign({}, panel.node.resources || {}, {memory_mb: value}))
+                }
+            }
+            EditorField {
+                label: qsTr("CPU (mCPU)")
+                EditorNumberField {
+                    objectName: "nodeResourceCpu"
+                    Accessible.name: qsTr("CPU, 1000 mCPU bằng một nhân")
+                    from: 100
+                    implicitHeight: Studio.Theme.controlHeight
+                    stepSize: 100
+                    to: panel.node && panel.node.image === "cyberlab/ubuntu:24.04-1" ? 2000 : 1000
+                    value: panel.node && panel.node.resources ? panel.node.resources.cpu_millicores || 500 : 500
+                    onValueModified: panel.editor.change("nodes", panel.nodeIndex, "resources", Object.assign({}, panel.node.resources || {}, {cpu_millicores: value}))
+                }
+            }
+            EditorField {
+                label: qsTr("Số bản máy")
+                EditorNumberField {
+                    Accessible.name: qsTr("Số bản máy")
+                    from: 1
+                    implicitHeight: Studio.Theme.controlHeight
+                    to: 4
+                    value: panel.node ? panel.node.clone || 1 : 1
+                    onValueModified: panel.editor.change("nodes", panel.nodeIndex, "clone", value)
+                }
             }
         }
-        Label { text: "Chờ node (cách nhau bằng dấu phẩy)" }
-        StudioTextField {
+    }
+    EditorDisclosure {
+        objectName: "nodeTerminalAdvanced"
+        title: qsTr("Terminal")
+        iconName: "terminal"
+        GridLayout {
             Layout.fillWidth: true
-            placeholderText: "server"
-            text: panel.node ? (panel.node.wait_for || []).join(", ") : ""
-            onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "wait_for",
-                text.split(",").map(value => value.trim()).filter(Boolean))
+            columns: width >= 620 ? 2 : 1
+            columnSpacing: Studio.Theme.space16
+            rowSpacing: Studio.Theme.space12
+            EditorField {
+                label: qsTr("Nhóm")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("Nhóm terminal")
+                    placeholderText: "client"
+                    text: panel.node ? panel.node.terminal_group || "" : ""
+                    onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "terminal_group", text.trim())
+                }
+            }
+            EditorField {
+                label: qsTr("Tiêu đề")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("Tiêu đề terminal")
+                    placeholderText: "client@lab"
+                    text: panel.node ? panel.node.terminal_title || "" : ""
+                    onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "terminal_title", text.trim())
+                }
+            }
         }
     }
-    Label { text: "Lệnh chạy (mỗi dòng là một đối số, không qua shell)"; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-    StudioTextArea {
-        Layout.fillWidth: true
-        text: panel.node ? (panel.node.command || []).join("\n") : ""
-        wrapMode: Text.WrapAnywhere
-        onActiveFocusChanged: if (!activeFocus && panel.node) panel.editor.change("nodes", panel.nodeIndex, "command", text.split("\n").filter(value => value.length > 0))
-    }
-    SectionHeader { title: "Tài khoản"; Layout.fillWidth: true }
-    CheckBox {
-        implicitHeight: Studio.Theme.controlHeight
-        text: "Tài khoản tùy chỉnh đã có trong image"
-        checked: !!panel.node && !!panel.node.user
-        onToggled: panel.editor.change("nodes", panel.nodeIndex, "user", checked
-            ? {name: "", uid: 1000, gid: 1000, home: "/home/", shell: "/bin/sh"} : null)
-    }
-    Label {
-        Layout.fillWidth: true
-        text: "Chỉ dùng tài khoản đã có trong image. Kiểm tra runtime trước khi lưu vào thư viện."
-        wrapMode: Text.WordWrap
-        color: Studio.Theme.textOnSurfaceVariant
-    }
-    ColumnLayout {
-        visible: !!panel.node && !!panel.node.user
-        Layout.fillWidth: true
-        spacing: Studio.Theme.space8
-        Label { text: "User" }
-        StudioTextField { Layout.fillWidth: true; text: panel.node && panel.node.user ? panel.node.user.name : ""; onEditingFinished: panel.editor.userField(panel.nodeIndex, "name", text) }
-        Label { text: "UID / GID" }
-        Flow {
+    EditorDisclosure {
+        objectName: "nodeNetworkAdvanced"
+        title: qsTr("Tên máy và phân giải mạng")
+        iconName: "lan"
+        GridLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: implicitHeight
-            spacing: Studio.Theme.space8
-            SpinBox {
-                implicitHeight: Studio.Theme.controlHeight; from: 1000; to: 60000; editable: true; value: panel.node && panel.node.user ? panel.node.user.uid : 2000; onValueModified: panel.editor.userField(panel.nodeIndex, "uid", value) }
-            SpinBox {
-                implicitHeight: Studio.Theme.controlHeight; from: 1000; to: 60000; editable: true; value: panel.node && panel.node.user ? panel.node.user.gid : 2000; onValueModified: panel.editor.userField(panel.nodeIndex, "gid", value) }
+            columns: width >= 620 ? 2 : 1
+            columnSpacing: Studio.Theme.space16
+            rowSpacing: Studio.Theme.space12
+            EditorField {
+                label: qsTr("Tên máy trong hệ thống")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: "Hostname"
+                    placeholderText: panel.node ? panel.node.id : ""
+                    text: panel.node ? panel.node.hostname || "" : ""
+                    onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "hostname", text)
+                }
+            }
+            EditorField {
+                label: qsTr("Tên thay thế")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("Alias, cách nhau bằng dấu phẩy")
+                    placeholderText: "client-box, workstation"
+                    text: panel.node ? (panel.node.aliases || []).join(", ") : ""
+                    onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "aliases", text.split(",").map(value => value.trim()).filter(Boolean))
+                }
+            }
+            EditorField {
+                label: qsTr("Tên máy và IP bổ sung")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    objectName: "nodeExtraHosts"
+                    Accessible.name: qsTr("Hosts bổ sung, host=IP, cách nhau bằng dấu phẩy")
+                    placeholderText: "server=10.0.0.2"
+                    text: panel.node ? Object.keys(panel.node.extra_hosts || {}).map(host => host + "=" + panel.node.extra_hosts[host]).join(", ") : ""
+                    onEditingFinished: {
+                        const hosts = {};
+                        text.split(",").map(value => value.trim()).filter(Boolean).forEach(item => {
+                            const parts = item.split("=");
+                            if (parts.length === 2) hosts[parts[0].trim()] = parts[1].trim();
+                        });
+                        panel.editor.change("nodes", panel.nodeIndex, "extra_hosts", hosts);
+                    }
+                }
+            }
+            EditorField {
+                label: "DNS"
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("DNS, IP cách nhau bằng dấu phẩy")
+                    placeholderText: "10.0.0.2, 10.0.0.3"
+                    text: panel.node ? (panel.node.dns || []).join(", ") : ""
+                    onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "dns", text.split(",").map(value => value.trim()).filter(Boolean))
+                }
+            }
+            EditorField {
+                label: qsTr("Chờ máy khởi động")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("Máy cần chờ, cách nhau bằng dấu phẩy")
+                    placeholderText: "server, db"
+                    text: panel.node ? (panel.node.wait_for || []).join(", ") : ""
+                    onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "wait_for", text.split(",").map(value => value.trim()).filter(Boolean))
+                }
+            }
         }
-        Label { text: "Home" }
-        Label { Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; text: panel.node && panel.node.user ? panel.node.user.home : "" }
-        Label { text: "Shell" }
-        StudioComboBox {
-            implicitHeight: Studio.Theme.controlHeight; model: ["/bin/sh", "/bin/bash"]; currentIndex: panel.node && panel.node.user ? model.indexOf(panel.node.user.shell) : 0; onActivated: panel.editor.userField(panel.nodeIndex, "shell", currentText) }
     }
-    Label { text: "DNS nội bộ (IP cách nhau bằng dấu phẩy)"; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-    StudioTextField {
-        Layout.fillWidth: true
-        text: panel.node ? (panel.node.dns || []).join(", ") : ""
-        onEditingFinished: panel.editor.change("nodes", panel.nodeIndex, "dns", text.split(",").map(value => value.trim()).filter(Boolean))
+    EditorDisclosure {
+        objectName: "nodeAccountAdvanced"
+        title: qsTr("Tài khoản nâng cao")
+        StudioToggle {
+            Layout.fillWidth: true
+            text: qsTr("Tài khoản tùy chỉnh")
+            checked: !!panel.node && !!panel.node.user
+            onToggled: panel.editor.change("nodes", panel.nodeIndex, "user", checked ? {name: "", uid: 1000, gid: 1000, home: "/home/", shell: "/bin/sh"} : null)
+        }
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("Tài khoản phải được môi trường hỗ trợ.")
+            color: Studio.Theme.textOnSurfaceVariant
+            font.pixelSize: Studio.Theme.bodySmall
+            wrapMode: Text.WordWrap
+        }
+        GridLayout {
+            Layout.fillWidth: true
+            visible: !!panel.node && !!panel.node.user
+            columns: width >= 620 ? 2 : 1
+            columnSpacing: Studio.Theme.space16
+            rowSpacing: Studio.Theme.space12
+            EditorField {
+                label: qsTr("Tên đăng nhập")
+                StudioTextField {
+                    Layout.fillWidth: true
+                    Accessible.name: qsTr("Tên tài khoản tùy chỉnh")
+                    text: panel.node && panel.node.user ? panel.node.user.name : ""
+                    onEditingFinished: panel.editor.userField(panel.nodeIndex, "name", text)
+                }
+            }
+            EditorField {
+                label: qsTr("Trình dòng lệnh")
+                StudioComboBox {
+                    Layout.fillWidth: true
+                    Accessible.name: "Shell"
+                    currentIndex: panel.node && panel.node.user ? model.indexOf(panel.node.user.shell) : 0
+                    model: ["/bin/sh", "/bin/bash"]
+                    onActivated: panel.editor.userField(panel.nodeIndex, "shell", currentText)
+                }
+            }
+            EditorField {
+                label: "UID"
+                EditorNumberField {
+                    Accessible.name: "UID"
+                    editable: true
+                    from: 1000
+                    implicitHeight: Studio.Theme.controlHeight
+                    to: 60000
+                    value: panel.node && panel.node.user ? panel.node.user.uid : 2000
+                    onValueModified: panel.editor.userField(panel.nodeIndex, "uid", value)
+                }
+            }
+            EditorField {
+                label: "GID"
+                EditorNumberField {
+                    Accessible.name: "GID"
+                    editable: true
+                    from: 1000
+                    implicitHeight: Studio.Theme.controlHeight
+                    to: 60000
+                    value: panel.node && panel.node.user ? panel.node.user.gid : 2000
+                    onValueModified: panel.editor.userField(panel.nodeIndex, "gid", value)
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: panel.node && panel.node.user ? panel.node.user.home : ""
+            textFormat: Text.PlainText
+            color: Studio.Theme.textOnSurfaceVariant
+            font.pixelSize: Studio.Theme.bodySmall
+            wrapMode: Text.WrapAnywhere
+        }
     }
 }

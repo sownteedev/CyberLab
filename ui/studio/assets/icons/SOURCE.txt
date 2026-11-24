@@ -4,3 +4,5 @@ Retrieved: 2026-10-23. Original SVG paths are unchanged.
 License: Apache License 2.0; see LICENSE.txt.
 Bundled locally for offline use; no fonts or runtime downloads.
 more_horiz.svg added from the same upstream on 2026-10-26, unchanged path.
+crop_square.svg and filter_none.svg added on 2026-10-28, unchanged paths.
+apps.svg added from the same upstream on 2026-11-05, unchanged path.

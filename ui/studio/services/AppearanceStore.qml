@@ -5,33 +5,40 @@ import ".." as Studio
 
 QtObject {
     id: preferences
-    property bool ready: false
+
     readonly property url location: StandardPaths.writableLocation(StandardPaths.ConfigLocation) + "/cyberlab/studio.ini"
-    property Settings storage: Settings {
-        id: stored
-        location: preferences.location
-        property string themeMode: "system"
-        property bool reducedMotion: false
-        property int settingsVersion: 1
-    }
-    Component.onCompleted: {
-        if (stored.settingsVersion === 1) {
-            Studio.Theme.themeMode = ["system", "light", "dark"].includes(stored.themeMode) ? stored.themeMode : "system";
-            Studio.Theme.reducedMotion = stored.reducedMotion;
-            ready = true;
-        }
-    }
     property Connections observer: Connections {
-        target: Studio.Theme
         function onThemeModeChanged() {
-            if (!preferences.ready) return;
+            if (!preferences.ready)
+                return;
             stored.themeMode = Studio.Theme.themeMode;
             stored.sync();
         }
-        function onReducedMotionChanged() {
-            if (!preferences.ready) return;
-            stored.reducedMotion = Studio.Theme.reducedMotion;
+        function onZoomPercentChanged() {
+            if (!preferences.ready)
+                return;
+            stored.zoomPercent = Studio.Theme.zoomPercent;
             stored.sync();
+        }
+
+        target: Studio.Theme
+    }
+    property bool ready: false
+    property Settings storage: Settings {
+        id: stored
+
+        property int settingsVersion: 1
+        property string themeMode: "system"
+        property int zoomPercent: 100
+
+        location: preferences.location
+    }
+
+    Component.onCompleted: {
+        if (stored.settingsVersion === 1) {
+            Studio.Theme.themeMode = ["system", "light", "dark"].includes(stored.themeMode) ? stored.themeMode : "system";
+            Studio.Theme.setZoomPercent(stored.zoomPercent >= Studio.Theme.minimumZoom && stored.zoomPercent <= Studio.Theme.maximumZoom ? stored.zoomPercent : 100);
+            ready = true;
         }
     }
 }

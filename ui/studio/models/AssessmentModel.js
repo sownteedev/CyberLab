@@ -13,12 +13,47 @@ function assign(entry, field, value) {
     else entry[field] = value;
 }
 
+function updateCollection(entry, field, value) {
+    const selectors = ["token", "parens", "quotes", "slash", "group", "search"];
+    const textFields = ["contains", "file_regex", "string_count", "command_count", "search"];
+    if (field === "field_type" && value !== entry.field_type) {
+        ["field_id", "line_type", "line_id", "timestamp_type"].forEach(key => { delete entry[key]; });
+        if (selectors.includes(value)) Object.assign(entry, {line_type: "none", field_id: 1});
+        if (textFields.includes(value)) entry.field_id = value === "search" ? "value={:d}" : "";
+        if (value === "param") entry.field_id = 1;
+        if (value === "group") Object.assign(entry, {line_type: "regex", line_id: "^(.*)$", field_id: 1});
+    }
+    if (field === "line_type" && value !== entry.line_type) {
+        if (value === "none") delete entry.line_id;
+        else entry.line_id = value === "line" ? 1 : "";
+        if (entry.field_type === "group" && value !== "regex") Object.assign(entry, {field_type: "token", field_id: 1});
+        if (["line", "previous_starts_with"].includes(value)) delete entry.timestamp_type;
+    }
+    if (field === "timestamp_type" && value !== "file" && ["line", "previous_starts_with"].includes(entry.line_type)) {
+        entry.line_type = "none";
+        delete entry.line_id;
+    }
+    if (field === "line_id" && entry.line_type === "line") value = boundedInteger(value, 1, 1048576);
+    if (field === "field_id" && !textFields.includes(entry.field_type)) {
+        value = String(value).trim();
+        if (entry.field_type === "group") value = boundedInteger(value, 0, 32);
+        else if (entry.field_type === "param") value = boundedInteger(value, 0, 4096);
+        else if (!["ALL", "LAST"].includes(value)) value = boundedInteger(value, 1, 4096);
+    }
+    assign(entry, field, value);
+}
+
 function updateResult(entry, field, value) {
+    if (entry.operator === "collect" && field !== "operator") {
+        updateCollection(entry, field, value);
+        return;
+    }
     const numeric = ["size_less_than", "size_equals", "line_count_equals", "string_count_equals"];
     if (field === "operator" && value !== entry.operator) {
-        ["expected", "field_type", "field_id", "line_type", "line_id"].forEach(key => { delete entry[key]; });
-        if (value !== "exists") entry.expected = numeric.includes(value) ? 0 : "";
-        if (value === "field_equals") Object.assign(entry, {field_type: "token", field_id: 1, line_type: "line", line_id: 1});
+        ["expected", "field_type", "field_id", "line_type", "line_id", "timestamp_type"].forEach(key => { delete entry[key]; });
+        if (!["exists", "extract", "collect"].includes(value)) entry.expected = numeric.includes(value) ? 0 : "";
+        if (value === "collect") Object.assign(entry, {field_type: "token", field_id: "ALL", line_type: "none"});
+        if (["field_equals", "extract"].includes(value)) Object.assign(entry, {field_type: "token", field_id: 1, line_type: "line", line_id: 1});
         if (value === "string_count_equals") entry.field_id = "";
     }
     if (field === "expected") {
@@ -44,7 +79,7 @@ function updateResult(entry, field, value) {
         }
     }
     if (field === "line_id" && entry.line_type === "line") value = boundedInteger(value, 1, 1048576);
-    if (field === "field_id" && entry.operator === "field_equals") {
+    if (field === "field_id" && ["field_equals", "extract"].includes(entry.operator)) {
         value = String(value).trim();
         if (entry.field_type === "group") value = boundedInteger(value, 0, 32);
         else if (!["ALL", "LAST"].includes(value)) value = boundedInteger(value, 1, 4096);

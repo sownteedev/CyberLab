@@ -5,24 +5,35 @@ import ".." as Studio
 
 TextField {
     id: field
+
     property bool error: false
-    implicitHeight: Studio.Theme.controlHeight
-    leftPadding: Studio.Theme.space16
-    rightPadding: Studio.Theme.space16
-    topPadding: 0
+    hoverEnabled: true
+
+    Accessible.name: placeholderText
     bottomPadding: 0
     color: Studio.Theme.textOnSurface
-    selectionColor: Studio.Theme.primaryContainer
-    selectedTextColor: Studio.Theme.textOnPrimaryContainer
-    placeholderTextColor: Studio.Theme.textOnSurfaceVariant
     font.family: Studio.Theme.fontFamily
     font.pixelSize: Studio.Theme.bodyMedium
+    implicitHeight: Studio.Theme.controlHeight
+    leftPadding: Studio.Theme.space16
+    placeholderTextColor: Studio.Theme.textOnSurfaceVariant
+    rightPadding: Studio.Theme.space16
     selectByMouse: true
-    Accessible.name: placeholderText
+    selectedTextColor: Studio.Theme.textOnPrimaryContainer
+    selectionColor: Studio.Theme.primaryContainer
+    topPadding: 0
+
     background: Rectangle {
-        radius: Studio.Theme.shapeMedium
-        color: Studio.Theme.surfaceContainerHigh
+        border.color: field.error ? Studio.Theme.error : field.activeFocus ? Studio.Theme.primary : Studio.Theme.outline
         border.width: field.activeFocus ? Studio.Theme.focusWidth : Studio.Theme.borderWidth
-        border.color: field.error ? Studio.Theme.error : field.activeFocus ? Studio.Theme.primary : Studio.Theme.outlineVariant
+        color: Studio.Theme.surfaceContainerHigh
+        radius: Studio.Theme.shapeMedium
+        Rectangle {
+            anchors.fill: parent
+            color: Studio.Theme.textOnSurface
+            opacity: field.enabled && field.hovered ? Studio.Theme.hoverOpacity : 0
+            radius: parent.radius
+            Behavior on opacity { NumberAnimation { duration: Studio.Theme.stateDuration } }
+        }
     }
 }

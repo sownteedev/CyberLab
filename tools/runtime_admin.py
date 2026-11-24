@@ -43,7 +43,7 @@ ENVIRONMENT = {
     "PIP_CONFIG_FILE": "/dev/null", "PIP_DISABLE_PIP_VERSION_CHECK": "1",
     "DEBIAN_FRONTEND": "noninteractive",
 }
-COMMANDS = ("systemctl", "systemd-analyze", "dbus-send", "docker", "runuser", "konsole")
+COMMANDS = ("systemctl", "systemd-analyze", "dbus-send", "docker", "runuser")
 
 
 def tool(name):
@@ -142,6 +142,36 @@ def docker_readiness(account, allow_stopped=False):
     print("PASS: system Docker Engine " + information["ServerVersion"])
     return True
 
+def probe_terminals(account):
+    result = run("/usr/bin/env", f"PATH={account.pw_dir}/.local/bin:/usr/local/bin:{SEARCH_PATH}", PYTHON, "-I",
+                 ROOT / "cli/cyberlab_cli/terminal_apps.py", "--probe", account=account, timeout=15)
+    options = json.loads(result.stdout)["options"]
+    if options:
+        print("PASS: native terminal choices: " + ", ".join(option["name"] for option in options))
+    else:
+        print("WARNING: no compatible native terminal; CLI/headless remains available. "
+              "A dependency installation can add xfce4-terminal; check/update/no-deps never install it.")
+    return options
+
+
+def probe_gui_client(account):
+    print('NOTICE: native X11 requires a verified local Xorg session and the reviewed daemon service policy')
+    result = run('/usr/bin/python3', '-I', ROOT / 'cli/cyberlab_cli/xpra_client.py', '--probe',
+                 account=account, timeout=15, check=False)
+    try:
+        report = json.loads(result.stdout) if result.returncode == 0 else {}
+    except ValueError:
+        report = {}
+    available = isinstance(report, dict) and report.get('ready') is True
+    if available:
+        print('PASS: native Xpra/GTK client packages for the desktop user')
+    else:
+        print('WARNING: native Xpra/GTK client is missing or incompatible; terminal/headless practice remains available')
+    print('UNVERIFIED: installer does not open or inherit the desktop display. '
+          'Run cyberlab gui-status from the user desktop to check X11/XWayland connectivity.')
+    return available
+
+
 def preflight(account, backend_only=False, allow_stopped=False):
     if sys.platform != "linux":
         raise ValueError("CyberLab requires Linux")
@@ -156,24 +186,16 @@ def preflight(account, backend_only=False, allow_stopped=False):
         raise ValueError("Missing host dependencies: " + ", ".join(missing) + ". Run bash install.sh --deps-only")
     if not Path("/run/dbus/system_bus_socket").is_socket():
         raise ValueError("The host System D-Bus is not available")
-    if not Path("/usr/bin/konsole").is_file():
-        raise ValueError("CyberLab requires Konsole at /usr/bin/konsole")
+    probe_terminals(account)
     catalog = Path(account.pw_dir) / "CyberLab-labs"
     if os.path.lexists(catalog) and not backend_only:
         check_catalog_permissions(account, catalog)
     if Path("/var/run/docker.sock").exists():
         run(PYTHON, "-I", "-c", "import os; assert not os.access('/var/run/docker.sock', os.W_OK), 'Desktop user must not have Docker socket access'", account=account)
     if not backend_only:
+        probe_gui_client(account)
         probe_runtime(account)
-        try:
-            run("/usr/bin/env", "QT_QPA_PLATFORM=offscreen", "/usr/bin/konsole", "--version", account=account, timeout=20)
-        except RuntimeError as error:
-            raise RuntimeError(
-                "Konsole is installed but its native libraries are incompatible. "
-                "Review --plan --allow-dependency-upgrades and repair the native dependency set; "
-                "no application files have been installed. " + str(error)
-            ) from error
-    print("PASS: Python, systemd, System D-Bus, Docker CLI and Konsole prerequisites")
+    print("PASS: Python, systemd, System D-Bus and Docker CLI prerequisites; terminal availability reported separately")
     return docker_readiness(account, allow_stopped)
 
 
@@ -479,7 +501,7 @@ def main():
         if wheel is None or wheel.parent != stage or wheel.is_symlink():
             raise ValueError("Expected a validated wheel in the private staging directory")
         if arguments.operation == "update":
-            tool("upgrade_runtime").upgrade(wheel, account.pw_uid, stage)
+            tool("upgrade_runtime").upgrade(wheel, account.pw_uid, stage, repair_service_policy=True)
         else:
             record_installation(account, stage, wheel)
     shadow = Path(account.pw_dir) / ".local/share/applications/cyberlab-studio.desktop"

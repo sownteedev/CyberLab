@@ -6,6 +6,7 @@ import QtQuick.Controls.Material
 import QtQuick.Controls.impl
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 
@@ -14,6 +15,7 @@ ShellRoot {
         Basic.Button { text: "Native runtime check" }
         Button { text: "Material runtime check" }
         FileDialog { }
+        Component { FolderListModel { } }
         RowLayout { }
         Image {
             id: svgProbe

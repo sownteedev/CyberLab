@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import signal
 import stat
+import sys
 import tempfile
 
 
@@ -50,7 +51,7 @@ def cleanup_tabs(session_id, test_session_bus=False):
     try:
         directory = tabs_dir(session_id, test_session_bus)
         if directory.is_dir():
-            for item in directory.glob("*.tabs"):
+            for item in (*directory.glob("*.tabs"), *directory.glob("*.profile")):
                 try:
                     item.unlink()
                 except OSError:
@@ -80,7 +81,8 @@ def _read(path):
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         with os.fdopen(descriptor, encoding="utf-8") as stream:
             status = os.fstat(stream.fileno())
-            if not stat.S_ISREG(status.st_mode) or status.st_size > 65536:
+            if (not stat.S_ISREG(status.st_mode) or status.st_size > 65536
+                    or status.st_uid != os.geteuid() or status.st_mode & 0o077):
                 return []
             value = json.loads(stream.read(65537))
     except (FileNotFoundError, json.JSONDecodeError, UnicodeError, OSError):
@@ -91,15 +93,24 @@ def _read(path):
 
 
 def _valid_record(record):
-    return (
+    common = (
         isinstance(record, dict)
         and type(record.get("pid")) is int
         and record["pid"] > 0
         and type(record.get("start_time")) is int
         and record["start_time"] >= 0
-        and type(record.get("pgid")) is int
-        and record["pgid"] == record["pid"]
     )
+    if not common:
+        return False
+    if record.get("kind") == "attachment":
+        return (isinstance(record.get("node"), str)
+                and re.fullmatch(r"[a-z][a-z0-9]*(-[a-z0-9]+)*", record["node"]) is not None
+                and len(record["node"]) <= 64
+                and type(record.get("slot")) is int and 0 <= record["slot"] < 4
+                and isinstance(record.get("token"), str) and SESSION_ID.fullmatch(record["token"]) is not None
+                and isinstance(record.get("title"), str) and len(record["title"]) <= 128
+                and isinstance(record.get("python"), str) and os.path.isabs(record["python"]))
+    return False
 
 
 def _write(path, records):
@@ -128,67 +139,74 @@ def _start_time(pid):
         return None
 
 
-def record_process(session_id, process, test_session_bus=False):
-    """Record a detached terminal process when it exposes a real PID."""
-    pid = getattr(process, "pid", None)
-    if type(pid) is not int or pid <= 0:
-        return False
-    start_time = _start_time(pid)
-    if start_time is None:
-        return False
-    try:
-        pgid = os.getpgid(pid)
-    except (ProcessLookupError, PermissionError, OSError):
-        return False
-    if pgid != pid:
-        return False
+def _matches(record):
+    return _start_time(record["pid"]) == record["start_time"]
+
+
+def attachment_command(session_id, node_id, slot, token, title, test_session_bus=False, python=None):
+    command = [python or sys.executable, "-I", "-m", "cyberlab_cli.main"]
+    if test_session_bus:
+        command.append("--test-session-bus")
+    return command + ["terminal", session_id, node_id, "--slot", str(slot),
+                      "--window-token", token, "--window-title", title.encode("utf-8").hex()]
+
+def decode_title(value):
+    if not isinstance(value, str) or len(value) > 1024:
+        raise ValueError("Invalid terminal title")
+    title = bytes.fromhex(value).decode("utf-8")
+    if len(title) > 128 or any(not character.isprintable() for character in title):
+        raise ValueError("Invalid terminal title")
+    return title
+
+
+def register_attachment(session_id, node_id, slot, token, title, test_session_bus=False):
+    record = {"kind": "attachment", "pid": os.getpid(), "start_time": _start_time(os.getpid()),
+              "node": node_id, "slot": slot, "token": token, "title": title, "python": sys.executable}
+    if not _valid_record(record) or not _belongs_to_session(record, session_id, test_session_bus):
+        raise ValueError("Invalid managed terminal attachment")
     path = _path(session_id, test_session_bus)
     with _locked(path):
         records = [entry for entry in _read(path) if _matches(entry)]
-        record = {"pid": pid, "pgid": pgid, "start_time": start_time}
-        if record not in records:
-            if len(records) >= 32:
-                raise ValueError("Too many tracked terminal windows")
-            records.append(record)
-            _write(path, records)
-    return True
+        if len(records) >= 32:
+            raise ValueError("Too many tracked terminal attachments")
+        records.append(record)
+        _write(path, records)
 
 
-def _matches(record):
-    return _start_time(record["pid"]) == record["start_time"]
+def unregister_attachment(session_id, token, test_session_bus=False):
+    path = _path(session_id, test_session_bus)
+    with _locked(path):
+        _write(path, [record for record in _read(path)
+                      if not (record.get("token") == token and record["pid"] == os.getpid())])
+
+
+def attached_tokens(session_id, test_session_bus=False):
+    path = _path(session_id, test_session_bus)
+    with _locked(path):
+        return {record["token"] for record in _read(path)
+                if record.get("kind") == "attachment" and _matches(record)
+                and _belongs_to_session(record, session_id, test_session_bus)}
 
 
 def _belongs_to_session(record, session_id, test_session_bus):
     process = Path(f"/proc/{record['pid']}")
     try:
-        if process.stat().st_uid != os.geteuid() or os.getpgid(record["pid"]) != record["pid"]:
+        if process.stat().st_uid != os.geteuid():
             return False
         arguments = process.joinpath("cmdline").read_bytes().split(b"\0")
-        if not arguments or arguments[0] != b"/usr/bin/konsole":
-            return False
-        if b"-e" in arguments:
-            idx = arguments.index(b"-e")
-            if idx + 4 > len(arguments) or arguments[idx + 2:idx + 4] != [b"-I", b"-m"] or b"cyberlab_cli.main" not in arguments[idx + 4]:
-                return False
-            index = idx + 5
-            if test_session_bus:
-                if arguments[index:index + 1] != [b"--test-session-bus"]:
-                    return False
-                index += 1
-            return arguments[index:index + 2] == [b"terminal", session_id.encode("ascii")]
-        if b"--tabs-from-file" in arguments:
-            idx = arguments.index(b"--tabs-from-file")
-            if idx + 1 < len(arguments):
-                tabfile = Path(arguments[idx + 1].decode("utf-8", "replace"))
-                if session_id in tabfile.name and tabfile.is_file():
-                    content = tabfile.read_text("utf-8", "replace")
-                    return session_id in content
+        if arguments and arguments[-1] == b"":
+            arguments.pop()
+        if record.get("kind") == "attachment":
+            expected = attachment_command(session_id, record["node"], record["slot"], record["token"],
+                                          record["title"], test_session_bus, record["python"])
+            return (arguments == [os.fsencode(argument) for argument in expected]
+                    and os.path.samefile(process / "exe", record["python"]))
         return False
     except (OSError, ValueError):
         return False
 
 def close_session(session_id, test_session_bus=False):
-    """Ask all terminal windows tracked for a Session to close."""
+    """Detach only verified CyberLab CLI children for this Session."""
     path = _path(session_id, test_session_bus)
     closed = 0
     with _locked(path):

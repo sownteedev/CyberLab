@@ -66,12 +66,15 @@ class DraftStore:
         row["origin"] = dict(origin) if origin else None
         return row
 
-    def create(self, lab_id, title, uid):
+    def create(self, lab_id, title, uid, tags=None):
         if not isinstance(lab_id, str) or len(lab_id) > 64 or not re.fullmatch(r"[a-z][a-z0-9]*(-[a-z0-9]+)*", lab_id):
             raise ValueError("Invalid Lab ID")
         if not isinstance(title, str) or not title.strip() or len(title) > 128 or any(ord(char) < 32 for char in title):
             raise ValueError("Title requires 1-128 printable characters")
-        definition = json.dumps({"apiVersion": "cyberlab.ptit/v1", "kind": "Lab", "metadata": {"id": lab_id, "name": title, "version": "1.0.0"}, "nodes": [], "networks": [], "terminals": []}, indent=2)
+        metadata = {"id": lab_id, "name": title, "version": "1.0.0"}
+        if tags is not None:
+            metadata["tags"] = tags
+        definition = json.dumps({"apiVersion": "cyberlab.ptit/v1", "kind": "Lab", "metadata": metadata, "nodes": [], "networks": [], "terminals": []}, indent=2)
         with self.transaction() as connection:
             total = connection.execute("SELECT COUNT(*) FROM drafts").fetchone()[0]
             owned = connection.execute("SELECT COUNT(*) FROM drafts WHERE owner=?", (uid,)).fetchone()[0]
@@ -119,9 +122,18 @@ class DraftStore:
 
     def list(self, uid, include_definition=False):
         with self.transaction() as connection:
-            fields = "id,owner,revision,definition" if include_definition else "id,owner,revision"
-            rows = connection.execute(f"SELECT {fields} FROM drafts WHERE ?=0 OR owner=? ORDER BY id", (uid, uid)).fetchall()
-            return [dict(row) for row in rows]
+            fields = "d.id,d.owner,d.revision" + (",d.definition" if include_definition else "")
+            rows = connection.execute(f"SELECT {fields},o.lab_id AS origin_lab_id,o.digest AS origin_digest "
+                                      "FROM drafts d LEFT JOIN origins o ON o.draft=d.id "
+                                      "WHERE ?=0 OR d.owner=? ORDER BY d.id", (uid, uid)).fetchall()
+            entries = []
+            for row in rows:
+                entry = dict(row)
+                lab_id = entry.pop("origin_lab_id")
+                digest = entry.pop("origin_digest")
+                entry["origin"] = {"lab_id": lab_id, "digest": digest} if lab_id else None
+                entries.append(entry)
+            return entries
 
     def change(self, identifier, uid, revision, definition=None, additions=(), removals=()):
         with self.transaction() as connection:

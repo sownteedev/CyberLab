@@ -17,15 +17,61 @@ detect_distribution() {
 
 configure_packages() {
     case "$family" in
-        arch) host_packages=(python python-pip systemd dbus konsole util-linux qt6-declarative qt6-svg qt6-wayland) ;;
+        arch) host_packages=(python python-pip systemd dbus util-linux qt6-declarative qt6-svg qt6-wayland xpra) ;;
         debian)
-            host_packages=(python3 python3-venv systemd dbus util-linux konsole libqt6svg6 qt6-wayland
+            host_packages=(python3 python3-venv systemd dbus util-linux xpra libqt6svg6 qt6-wayland
                 qml6-module-qtcore qml6-module-qtqml qml6-module-qtqml-models qml6-module-qtqml-workerscript
                 qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtquick-controls
-                qml6-module-qtquick-dialogs qml6-module-qtquick-layouts qml6-module-qtquick-templates) ;;
-        fedora) host_packages=(python3 python3-pip systemd dbus dbus-tools dbus-daemon util-linux konsole qt6-qtdeclarative qt6-qtsvg qt6-qtwayland) ;;
-        suse) host_packages=(systemd dbus-1 util-linux qt6-declarative-imports libQt6Svg6 qt6-wayland) ;;
+                qml6-module-qtquick-dialogs qml6-module-qtquick-layouts qml6-module-qtquick-templates
+                qml6-module-qt-labs-folderlistmodel) ;;
+        fedora) host_packages=(python3 python3-pip systemd dbus dbus-tools dbus-daemon util-linux xpra qt6-qtdeclarative qt6-qtsvg qt6-qtwayland) ;;
+        suse) host_packages=(systemd dbus-1 util-linux xpra qt6-declarative-imports libQt6Svg6 qt6-wayland) ;;
     esac
+}
+
+native_terminals_present() {
+    local probe_python account_home response
+    probe_python="$(command -v python3 || command -v python || true)"
+    [[ -n $probe_python ]] || return 2
+    account_home="$(getent passwd "$desktop_user" | cut -d: -f6)"
+    [[ $account_home == /* ]] || return 2
+    local -a probe=(/usr/bin/env "HOME=$account_home" "PATH=$account_home/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        "$probe_python" -B -I "$ROOT/cli/cyberlab_cli/terminal_apps.py" --probe)
+    if [[ $EUID == 0 ]]; then
+        [[ $(id -u -- "$desktop_user") != 0 ]] || return 2
+        command -v runuser >/dev/null || return 2
+        probe=(runuser -u "$desktop_user" -- "${probe[@]}")
+    elif [[ $(id -un) != "$desktop_user" ]]; then
+        return 2
+    fi
+    response="$("${probe[@]}")" || return 2
+    printf '%s' "$response" | "$probe_python" -I -c '
+import json, sys
+try:
+    options = json.load(sys.stdin)["options"]
+    if not isinstance(options, list):
+        raise ValueError("Invalid terminal inventory")
+except (ValueError, KeyError, TypeError):
+    sys.exit(2)
+sys.exit(0 if options else 1)'
+}
+
+collect_terminal_package() {
+    local probe_status
+    terminal_probe_pending=no
+    if native_terminals_present; then
+        printf '%s\n' 'Native terminal found for the desktop user; no terminal package will be added.'
+    else
+        probe_status=$?
+        if [[ $probe_status == 1 ]]; then
+            package_available xfce4-terminal || fail 'No compatible terminal was found and xfce4-terminal is unavailable in enabled repositories. Install a supported native terminal explicitly; no repository is added.'
+            host_packages+=(xfce4-terminal)
+            printf '%s\n' 'No compatible terminal found: adding only xfce4-terminal and its dependencies as fallback.'
+        else
+            terminal_probe_pending=yes
+            printf '%s\n' 'Terminal discovery is not available yet. After Python is installed, recheck before proposing xfce4-terminal; do not assume the terminal is missing.'
+        fi
+    fi
 }
 
 select_python() {
@@ -143,6 +189,7 @@ collect_native_packages() {
     configure_packages
     printf 'Checking native packages for %s...\n' "$distro_name"
     check_python_candidate
+    collect_terminal_package
     if [[ $family == debian ]] && package_available qt6-svg-plugins; then
         host_packages+=(qt6-svg-plugins)
     fi
@@ -150,8 +197,6 @@ collect_native_packages() {
         collect_fedora_upgrades libgcc 'libstdc++'
     fi
     if [[ $family == suse ]]; then
-        selected="$(choose_available konsole konsole-qt6)" || fail 'Konsole is missing from enabled openSUSE repositories.'
-        host_packages+=("$selected")
         if ! select_python >/dev/null; then
             for version in 314 313 312; do
                 if package_available "python${version}" && package_available "python${version}-pip"; then
@@ -195,7 +240,16 @@ install_native_packages() {
     collect_native_packages
     if ((${#missing_packages[@]} == 0)); then
         printf '%s\n' 'Native dependencies are already installed.'
-        return
+    else
+        guarded_package_install
     fi
-    guarded_package_install
+    if [[ $terminal_probe_pending == yes ]]; then
+        host_packages=(); missing_packages=(); forced_packages=()
+        collect_terminal_package
+        [[ $terminal_probe_pending == no ]] || fail 'Cannot inspect terminals as the desktop user. Resolve the discovery error; no fallback terminal was installed.'
+        if ((${#host_packages[@]})); then
+            missing_packages=("${host_packages[@]}")
+            guarded_package_install
+        fi
+    fi
 }

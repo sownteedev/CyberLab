@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import stat
 import tomllib
+from cyberlab.lab.workstation import UBUNTU_IMAGE
 
 
 def trusted_path(path: Path) -> None:
@@ -28,12 +29,13 @@ class Config:
     allowed_uids: frozenset[int]
     allowed_images: frozenset[str]
     authoring: bool = False
+    workstation_images: frozenset[str] = frozenset()
 
 
 def load_config(path: Path) -> Config:
     trusted_path(path)
     document = tomllib.loads(path.read_text(encoding="utf-8"))
-    if set(document) - {"catalog", "allowed_uids", "allowed_images", "authoring"} or not {"catalog", "allowed_uids", "allowed_images"} <= set(document):
+    if set(document) - {"catalog", "allowed_uids", "allowed_images", "authoring", "workstation_images"} or not {"catalog", "allowed_uids", "allowed_images"} <= set(document):
         raise ValueError("Config requires catalog, allowed_uids, allowed_images and optional authoring")
     if type(document.get("authoring", False)) is not bool:
         raise ValueError("authoring must be a boolean")
@@ -45,6 +47,9 @@ def load_config(path: Path) -> Config:
         raise ValueError("allowed_uids must contain numeric Unix UIDs")
     if not isinstance(images, list) or not images or any(not isinstance(image, str) or not image.strip() for image in images):
         raise ValueError("allowed_images must contain explicit image references")
+    workstations = document.get("workstation_images", [])
+    if not isinstance(workstations, list) or any(image != UBUNTU_IMAGE or image not in images for image in workstations):
+        raise ValueError("workstation_images accepts only the approved Ubuntu image already in allowed_images")
     catalog = Path(document["catalog"])
     trusted_path(catalog)
     if not catalog.is_dir():
@@ -54,4 +59,4 @@ def load_config(path: Path) -> Config:
         mode = item.lstat().st_mode
         if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
             raise ValueError("Production catalog contains a special file")
-    return Config(catalog, frozenset(uids), frozenset(images), document.get("authoring", False))
+    return Config(catalog, frozenset(uids), frozenset(images), document.get("authoring", False), frozenset(workstations))

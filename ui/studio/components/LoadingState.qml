@@ -5,27 +5,37 @@ import ".." as Studio
 
 Item {
     id: indicator
+
     property bool busy: false
     property bool revealed: false
-    implicitHeight: 2
+
     clip: true
+    implicitHeight: 2
+
     onBusyChanged: {
-        if (busy) delay.restart();
-        else { delay.stop(); revealed = false; }
+        if (busy)
+            delay.restart();
+        else {
+            delay.stop();
+            revealed = false;
+        }
     }
+
     Timer {
         id: delay
+
         interval: 400
         running: indicator.busy
+
         onTriggered: indicator.revealed = indicator.busy
     }
     ProgressBar {
-        anchors.fill: parent
-        visible: indicator.revealed
-        indeterminate: !Studio.Theme.reducedMotion
-        value: 1
-        palette.highlight: Studio.Theme.primary
-        palette.dark: Studio.Theme.surfaceContainerHigh
         Accessible.name: "Thao tác đang thực hiện"
+        anchors.fill: parent
+        indeterminate: !Studio.Theme.reducedMotion
+        palette.dark: Studio.Theme.surfaceContainerHigh
+        palette.highlight: Studio.Theme.primary
+        value: 1
+        visible: indicator.revealed
     }
 }

@@ -11,8 +11,15 @@ Existing checks remain available: `exists`, `contains`, `equals`,
 `line_contains`, `regex`, `size_less_than`, `size_equals`,
 `line_count_equals` and `sha256_equals`.
 
-The new operators are `md5_equals`, `string_count_equals` and `field_equals`.
-The latter uses the following declaration:
+Labtainer-style extraction uses `collect`: a successful scalar selection returns
+`value` with status `COLLECTED`; put the expected value in a separate Goal.
+Boolean collection fields (`contains` and `file_regex`) still return `PASS` or
+`FAIL`. The older `extract` operator remains for existing labs and rejects an
+`expected` field. Missing evidence fails the Result; extraction errors retain
+the existing bounded reader and regex safeguards.
+
+Legacy operators `md5_equals`, `string_count_equals` and `field_equals` remain
+supported. The latter uses the following declaration:
 
 ```yaml
 operator: field_equals
@@ -44,6 +51,28 @@ truncated into invalid JSON. Extracted `value` fields are included in the report
 but never used to read an undeclared path. Studio displays a plain-text preview
 limited to 512 characters and four lines; the stored report retains the value.
 
+## Labtainer Result field types
+
+`collect` supports the 15 field types from Labtainer's Result editor:
+`token`, `parens`, `quotes`, `slash`, `group`, `search`, `line_count`,
+`checksum` (MD5), `size`, `time_delim`, `contains`, `file_regex`,
+`string_count`, `command_count` and `param`. `none` selects the complete file
+content. `search` implements the bounded common format subset `{}`, `{:d}`,
+`{:f}`, `{:w}`, `{:S}`, `{:s}` and `{:x}`; named fields and arbitrary Python
+`parse.search` expressions are rejected rather than silently misread.
+
+`timestamp_type` supports `file`, `log_ts` and `log_range` for `contains`,
+`file_regex` and `search`. Logs must contain ISO-8601 timestamps with an
+explicit timezone. `time_delim` reads only declared workspace capture names
+such as `program.stdout.YYYYMMDDhhmmss`. `param` reads an explicit
+`PROGRAM_ARGUMENTS (...)` stdin capture; CyberLab does not automatically record
+terminal stdout, stdin, program invocations or host system logs.
+
+Timeline results are bounded to 128 instances and 16 KiB. They are displayed in
+Checkwork and preserved in submission review, but temporal Goal operators are
+not added in this slice. A scalar `COLLECTED` value can feed the existing
+non-temporal comparison Goals.
+
 ## Snapshot goal types
 
 ```yaml
@@ -52,12 +81,11 @@ assessment:
     - id: answer
       node: client
       path: answer.txt
-      operator: field_equals
+      operator: extract
       field_type: token
       field_id: 2
       line_type: starts_with
       line_id: port
-      expected: "42"
   goals:
     - id: equal-port
       type: compare
@@ -107,10 +135,16 @@ Studio applies type changes atomically, removes incompatible fields and stores
 visible defaults. Result renames update both comparison operands; referenced
 Results cannot be removed until the author removes their references.
 
+Authoring has three primary tabs: Results, Goals and Quiz. Results and Goals use
+responsive labeled grids; descriptions/hints are collapsed. Settings, parameters
+and submission files remain under Advanced. Merely changing tabs or collapsing
+controls does not rewrite existing declarations. New Results default to collecting the full file as `TOKEN` with `NONE`; new
+Goals compare a Result with a literal string.
+
 ## Deliberately not supported yet
 
-Labtainer also supports result streams with multiple timestamps, `LOG_TS`,
-`LOG_RANGE`, `TIME_DELIM`, program stdin/stdout archives, and goal operators
+Labtainer also supports richer result streams, program stdin/stdout archives,
+automatic runtime capture and goal operators
 such as `matchany`, `matchlast`, `matchacross`, `time_before`, `time_during`,
 event-instance counting, and boolean expressions over temporal instances. CyberLab's
 current Checkwork model captures one bounded workspace snapshot, so pretending
@@ -121,6 +155,15 @@ model before implementation.
 arbitrary scripts are intentionally excluded by the CyberLab security policy.
 
 ## Verification
+
+Current checks: `tools/check_result_collection.py` validates all 15 bounded
+collection field types, timestamp instances, resource limits, legacy behavior,
+submission round-trip and malicious inputs. `tools/check_assessment_quiz.py` validates extraction feeding
+Goals, missing/bounded evidence, preparation completion, revision and owner
+isolation. `tools/check_notifications.py --suite editor --native` checks the
+rendered authoring layout and preserved declarations using temporary fixtures.
+The historical `tests/` suites listed below are not present in this checkout
+and are not part of the current verification claim.
 
 `tests/test_assessment_extractors.py` and `tests/test_assessment_goals.py` cover
 selection boundaries, escaping, integer parsing, unknown counts and metadata

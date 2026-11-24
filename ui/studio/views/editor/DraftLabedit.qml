@@ -5,32 +5,92 @@ import "../.." as Studio
 
 ColumnLayout {
     id: page
-    required property var editor
+
     property int category: 0
+    required property var editor
+
     spacing: Studio.Theme.space12
-    SectionHeader {
+
+    Studio.StudioSegmentedTabs {
+        Accessible.name: "Results, Goals và Quiz"
         Layout.fillWidth: true
-        title: "Nội dung bài thực hành"
-        titleSize: Studio.Theme.titleMedium
-    }
-    StudioComboBox {
-        objectName: "labeditCategory"
-        Layout.fillWidth: true
-        model: ["Thiết lập", "Tham số", "Bằng chứng", "Điều kiện", "Mục tiêu", "Câu hỏi"]
         currentIndex: page.category
-        Accessible.name: "Nhóm cấu hình bài"
-        onActivated: page.category = currentIndex
+        entries: [{label: "Results", icon: "description"}, {label: "Goals", icon: "check_circle"}, {label: "Quiz", icon: "help"}]
+        itemPrefix: "labeditTab-"
+        objectName: "labeditCategory"
+
+        onSelected: index => page.category = index
     }
-    Loader {
-        id: content
-        objectName: "labeditContent"
+    Studio.DraftFormCard {
         Layout.fillWidth: true
-        sourceComponent: [settings, parameters, artifacts, results, goals, quiz][page.category]
+        Loader {
+            id: content
+            Layout.fillWidth: true
+            objectName: "labeditContent"
+            sourceComponent: [results, goals, quiz][page.category]
+        }
     }
-    Component { id: settings; LabeditSettings { editor: page.editor } }
-    Component { id: parameters; LabeditParameters { editor: page.editor } }
-    Component { id: artifacts; LabeditArtifacts { editor: page.editor } }
-    Component { id: results; LabeditResults { editor: page.editor } }
-    Component { id: goals; LabeditGoals { editor: page.editor } }
-    Component { id: quiz; LabeditQuiz { editor: page.editor } }
+    Studio.EditorDisclosure {
+        id: advanced
+        title: "Nâng cao"
+        objectName: "labeditAdvanced"
+
+        StudioComboBox {
+            id: advancedCategory
+            Accessible.name: "Cấu hình nâng cao"
+            Layout.fillWidth: true
+            model: ["Thiết lập", "Tham số", "File nộp bài"]
+            objectName: "labeditAdvancedCategory"
+        }
+        Studio.DraftFormCard {
+            Layout.fillWidth: true
+            Loader {
+                Layout.fillWidth: true
+                active: page.visible && advanced.expanded
+                sourceComponent: [settings, parameters, artifacts][advancedCategory.currentIndex]
+            }
+        }
+    }
+    Component {
+        id: settings
+
+        LabeditSettings {
+            editor: page.editor
+        }
+    }
+    Component {
+        id: parameters
+
+        LabeditParameters {
+            editor: page.editor
+        }
+    }
+    Component {
+        id: artifacts
+
+        LabeditArtifacts {
+            editor: page.editor
+        }
+    }
+    Component {
+        id: results
+
+        LabeditResults {
+            editor: page.editor
+        }
+    }
+    Component {
+        id: goals
+
+        LabeditGoals {
+            editor: page.editor
+        }
+    }
+    Component {
+        id: quiz
+
+        LabeditQuiz {
+            editor: page.editor
+        }
+    }
 }

@@ -5,25 +5,36 @@ import QtQuick.Layouts
 import "../.."
 import "../.." as Studio
 
-Dialog {
+Studio.StudioDialog {
     id: dialog
-    objectName: "quizDialog"
-    property var api
-    property QuizService service: QuizService { api: dialog.api }
-    readonly property var session: service.session
-    readonly property var questions: service.questions
-    readonly property var displayQuestions: service.displayQuestions
-    readonly property var quizGroups: service.groups
+
     readonly property var answers: service.answers
+    property var api
+    readonly property var displayQuestions: service.displayQuestions
+    readonly property var questions: service.questions
+    readonly property var quizGroups: service.groups
     readonly property var quizResult: service.quizResult
     property Item returnFocus: null
+    property QuizService service: QuizService {
+        api: dialog.api
+    }
+    readonly property var session: service.session
+
     signal startRequested(var lab)
 
     function openFor(selectedSession) {
         if (!visible && parent && parent.Window.window)
             returnFocus = parent.Window.window.activeFocusItem;
         service.openFor(selectedSession);
-        if (service.questions.length) open();
+        if (service.questions.length)
+            open();
+    }
+    function openLab(selectedLab, beforeStart) {
+        if (!visible && parent && parent.Window.window)
+            returnFocus = parent.Window.window.activeFocusItem;
+        service.openLab(selectedLab, beforeStart);
+        if (service.lab)
+            open();
     }
     function setAnswer(identifier, selected) {
         service.setAnswer(identifier, selected);
@@ -31,90 +42,87 @@ Dialog {
     function submit() {
         service.submit();
     }
-    function openLab(selectedLab, beforeStart) {
-        if (!visible && parent && parent.Window.window)
-            returnFocus = parent.Window.window.activeFocusItem;
-        service.openLab(selectedLab, beforeStart);
-        if (service.lab) open();
-    }
 
-    parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(760, parent ? parent.width - Studio.Theme.space32 : 760)
-    height: Math.min(720, parent ? parent.height - Studio.Theme.space32 : 720)
-    padding: Studio.Theme.space16
-    modal: true
-    focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    onOpened: closeButton.forceActiveFocus(Qt.TabFocusReason)
-    onClosed: {
-        forgetConfirmation.close();
-        service.clear();
-        if (returnFocus) returnFocus.forceActiveFocus(Qt.TabFocusReason);
-    }
-    background: Rectangle { radius: Studio.Theme.shapeExtraLarge; color: Studio.Theme.surfaceContainerHigh }
-    Overlay.modal: Rectangle { color: Studio.Theme.scrim }
-    header: RowLayout {
-        implicitHeight: Studio.Theme.appBarHeight
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: Studio.Theme.space16
-            text: dialog.service.beforeStart ? "Chuẩn bị trước khi mở bài" : "Câu hỏi"
-            color: Studio.Theme.textOnSurface
-            font.pixelSize: Studio.Theme.titleMedium
-        }
-        StudioIconButton {
-            id: closeButton
-            Layout.rightMargin: Studio.Theme.space8
-            iconName: "close"
-            description: "Đóng câu hỏi"
-            onClicked: dialog.close()
-        }
-    }
+    focus: true
+    height: Math.min(720, parent ? parent.height - Studio.Theme.space32 : 720)
+    modal: true
+    objectName: "quizDialog"
+    padding: Studio.Theme.space24
+    topPadding: Studio.Theme.space8
+    parent: Overlay.overlay
+    width: Math.min(760, parent ? parent.width - Studio.Theme.space32 : 760)
+
     contentItem: ColumnLayout {
         spacing: Studio.Theme.space12
+
         Label {
             Layout.fillWidth: true
-            text: dialog.service.lab ? dialog.service.lab.name
-                : dialog.session ? dialog.session.lab_name + " · "
-                    + dialog.questions.filter(item => item.type !== "preface").length + " câu" : ""
+            color: Studio.Theme.textOnSurfaceVariant
+            text: dialog.service.lab ? dialog.service.lab.name : dialog.session ? dialog.session.lab_name + " · " + dialog.questions.filter(item => item.type !== "preface").length + " câu" : ""
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            color: Studio.Theme.textOnSurfaceVariant
         }
         Label {
             Layout.fillWidth: true
-            visible: dialog.service.beforeStart
-            text: "Trả lời phần chuẩn bị trước khi mở terminal. Không yêu cầu đúng tất cả."
-            wrapMode: Text.WordWrap
             color: Studio.Theme.textOnSurfaceVariant
             font.pixelSize: Studio.Theme.bodySmall
+            text: "Trả lời đủ để vào thực hành, không cần đúng hết."
+            visible: dialog.service.beforeStart
+            wrapMode: Text.WordWrap
         }
         StudioComboBox {
-            Layout.fillWidth: true
-            visible: dialog.quizGroups.length > 1
-            model: dialog.quizGroups.map(group => group.title || group.id)
-            currentIndex: Math.max(0, dialog.quizGroups.findIndex(group => group.id === dialog.service.activeQuizId))
             Accessible.name: "Bộ câu hỏi"
-            onActivated: if (currentIndex >= 0) dialog.service.selectQuiz(dialog.quizGroups[currentIndex].id)
+            Layout.fillWidth: true
+            currentIndex: Math.max(0, dialog.quizGroups.findIndex(group => group.id === dialog.service.activeQuizId))
+            model: dialog.quizGroups.map(group => group.title || group.id)
+            visible: dialog.quizGroups.length > 1
+
+            onActivated: if (currentIndex >= 0)
+                dialog.service.selectQuiz(dialog.quizGroups[currentIndex].id)
         }
-        InlineError { Layout.fillWidth: true; message: dialog.service.error }
+        InlineError {
+            Layout.fillWidth: true
+            message: dialog.service.error
+        }
+        Label {
+            Layout.fillWidth: true
+            color: Studio.Theme.textOnSurfaceVariant
+            font.pixelSize: Studio.Theme.bodySmall
+            objectName: "quizAnswerProgress"
+            text: dialog.service.loading ? "Đang tải câu hỏi…" : "Đã trả lời "
+                + dialog.questions.filter(item => item.type !== "preface" && Number.isInteger(dialog.answers[item.id])).length
+                + "/" + dialog.questions.filter(item => item.type !== "preface").length + " câu"
+        }
+        LoadingState {
+            Layout.fillWidth: true
+            busy: dialog.service.loading || dialog.service.submitting
+            visible: busy
+        }
         ScrollView {
             id: questionsScroll
-            objectName: "quizQuestionsScroll"
-            Layout.fillWidth: true
+
             Layout.fillHeight: true
+            Layout.fillWidth: true
             clip: true
             contentWidth: availableWidth
+            objectName: "quizQuestionsScroll"
+
             ColumnLayout {
-                width: questionsScroll.availableWidth
                 spacing: Studio.Theme.space12
+                width: questionsScroll.availableWidth
+
                 Repeater {
                     model: dialog.displayQuestions
+
                     delegate: QuizQuestionCard {
+                        required property int index
                         required property var modelData
+
                         Layout.fillWidth: true
                         question: modelData
+                        number: dialog.displayQuestions.slice(0, index + 1).filter(item => item.type !== "preface").length
                         service: dialog.service
                     }
                 }
@@ -122,66 +130,84 @@ Dialog {
         }
         Label {
             Layout.fillWidth: true
-            visible: !!dialog.quizResult
-            text: !dialog.quizResult ? "" : dialog.service.beforeStart
-                ? (dialog.quizResult.pre_start_completed ? "Đã hoàn thành phần chuẩn bị" : "Còn câu chuẩn bị chưa trả lời")
-                : dialog.quizResult.graded === 0 ? "Đã lưu câu trả lời"
-                : (dialog.quizResult.passed ? "Đã đạt: " : "Kết quả: ") + dialog.quizResult.correct + "/" + dialog.quizResult.graded
             color: dialog.quizResult && dialog.quizResult.passed ? Studio.Theme.success : Studio.Theme.textOnSurfaceVariant
             font.pixelSize: Studio.Theme.titleSmall
+            text: !dialog.quizResult ? "" : dialog.service.beforeStart ? (dialog.quizResult.pre_start_completed ? "Đã hoàn thành phần chuẩn bị" : "Còn câu chuẩn bị chưa trả lời") : dialog.quizResult.graded === 0 ? "Đã lưu câu trả lời" : (dialog.quizResult.passed ? "Đã đạt: " : "Kết quả: ") + dialog.quizResult.correct + "/" + dialog.quizResult.graded
+            visible: !!dialog.quizResult
+            wrapMode: Text.WordWrap
         }
     }
-    footer: RowLayout {
-        spacing: Studio.Theme.space8
-        StudioIconButton {
-            objectName: "forgetLabQuizButton"
-            Layout.leftMargin: Studio.Theme.space16
-            Layout.topMargin: Studio.Theme.space8
-            Layout.bottomMargin: Studio.Theme.space16
-            visible: !!dialog.service.lab
-            iconName: "delete"
-            description: "Xóa câu trả lời của bài đã lưu"
-            danger: true
-            enabled: !!dialog.quizResult && !dialog.api.busy && !dialog.service.loading && !dialog.service.submitting
-            onClicked: forgetConfirmation.open()
-        }
-        Item { Layout.fillWidth: true }
-        StudioButton {
-            objectName: "submitQuizButton"
-            Layout.topMargin: Studio.Theme.space8
-            Layout.bottomMargin: Studio.Theme.space16
-            Layout.rightMargin: dialog.service.beforeStart ? 0 : Studio.Theme.space16
-            text: "Nộp câu trả lời"
-            iconName: "check"
-            highlighted: !dialog.service.canContinue
-            enabled: (!!dialog.session || !!dialog.service.lab) && dialog.questions.length > 0
-                && !dialog.api.busy && !dialog.service.loading && !dialog.service.submitting
-            onClicked: dialog.submit()
-        }
-        StudioButton {
-            objectName: "continueAfterQuizButton"
-            Layout.topMargin: Studio.Theme.space8
-            Layout.bottomMargin: Studio.Theme.space16
-            Layout.rightMargin: Studio.Theme.space16
-            visible: dialog.service.beforeStart
-            text: "Tiếp tục"
-            iconName: "play_arrow"
-            highlighted: true
-            enabled: dialog.service.canContinue && !dialog.api.busy
-            onClicked: {
-                const selected = dialog.service.lab;
-                dialog.close();
-                dialog.startRequested(selected);
+    footer: Studio.StudioDialogFooter {
+        contentItem: GridLayout {
+            columns: dialog.service.beforeStart ? (width < 460 ? 2 : 3) : (dialog.service.lab ? 2 : 1)
+            columnSpacing: Studio.Theme.space8
+            rowSpacing: Studio.Theme.space8
+
+            StudioIconButton {
+                danger: true
+                description: "Xóa câu trả lời của bài đã lưu"
+                enabled: !!dialog.quizResult && !dialog.api.busy && !dialog.service.loading && !dialog.service.submitting
+                iconName: "delete"
+                objectName: "forgetLabQuizButton"
+                visible: !!dialog.service.lab
+
+                onClicked: forgetConfirmation.open()
+            }
+            StudioButton {
+                Layout.fillWidth: true
+                enabled: (!!dialog.session || !!dialog.service.lab) && dialog.questions.length > 0 && !dialog.quizResult && !dialog.api.busy && !dialog.service.loading && !dialog.service.submitting
+                highlighted: !dialog.service.canContinue
+                iconName: "check"
+                objectName: "submitQuizButton"
+                text: dialog.service.submitting ? "Đang lưu…" : dialog.quizResult ? "Đã xem đáp án" : "Xem đáp án"
+
+                onClicked: dialog.submit()
+            }
+            StudioButton {
+                Layout.fillWidth: true
+                Layout.columnSpan: parent.columns === 2 ? 2 : 1
+                enabled: dialog.service.canContinue && !dialog.api.busy
+                highlighted: true
+                iconName: "play_arrow"
+                objectName: "continueAfterQuizButton"
+                text: "Vào thực hành"
+                visible: dialog.service.beforeStart
+
+                onClicked: {
+                    const selected = dialog.service.lab;
+                    dialog.close();
+                    dialog.startRequested(selected);
+                }
             }
         }
     }
+    header: Studio.StudioDialogHeader {
+        id: dialogHeader
+        title: dialog.service.beforeStart ? "Quiz trước thực hành" : "Quiz"
+        iconName: "help"
+        closeDescription: "Đóng câu hỏi"
+        onCloseRequested: dialog.close()
+    }
+
+    onAboutToHide: {
+        forgetConfirmation.close();
+        service.clear();
+    }
+    onClosed: {
+        if (returnFocus)
+            returnFocus.forceActiveFocus(Qt.TabFocusReason);
+    }
+    onOpened: dialogHeader.closeButton.forceActiveFocus(Qt.TabFocusReason)
+
     ConfirmDialog {
         id: forgetConfirmation
-        title: "Xóa câu trả lời đã lưu?"
-        message: "Bạn sẽ làm lại câu hỏi của bài. Câu trả lời trong phiên thực hành và báo cáo cũ không bị thay đổi."
+
+        confirmEnabled: !dialog.api.busy && !dialog.service.submitting
         confirmText: "Xóa câu trả lời"
         danger: true
-        confirmEnabled: !dialog.api.busy && !dialog.service.submitting
+        message: "Bạn sẽ làm lại câu hỏi của bài. Câu trả lời trong phiên thực hành và báo cáo cũ không bị thay đổi."
+        title: "Xóa câu trả lời đã lưu?"
+
         onAccepted: dialog.service.forget()
     }
 }

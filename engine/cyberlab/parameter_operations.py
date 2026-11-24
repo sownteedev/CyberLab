@@ -56,10 +56,11 @@ def seed_usage(nodes):
     try:
         for node in nodes:
             validate_seed(node.seed)
+            validate_seed(node.system_seed)
     except AssetError as error:
         raise ValueError(str(error)) from None
-    size = sum(len(entry.data or b"") for node in nodes for entry in node.seed)
-    count = sum(len(node.seed) for node in nodes)
+    size = sum(len(entry.data or b"") for node in nodes for entry in (*node.seed, *node.system_seed))
+    count = sum(len(node.seed) + len(node.system_seed) for node in nodes)
     if size > MAX_BYTES or count > MAX_ENTRIES:
         raise ValueError("Initial files exceed the shared seed limit")
     return size, count

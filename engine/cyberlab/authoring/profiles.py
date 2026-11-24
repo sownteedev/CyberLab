@@ -1,4 +1,6 @@
 from copy import deepcopy
+from dataclasses import asdict
+from cyberlab.lab.workstation import UBUNTU_IMAGE, UBUNTU_USER, RESERVED_USERNAMES
 
 
 PROFILES = (
@@ -15,5 +17,12 @@ PROFILES = (
 )
 
 
-def image_profiles(allowed_images):
-    return [deepcopy(profile) for profile in PROFILES if profile["image"] in allowed_images]
+def image_profiles(allowed_images, workstation_images=frozenset()):
+    profiles = []
+    if UBUNTU_IMAGE in allowed_images and UBUNTU_IMAGE in workstation_images:
+        profiles.append({"image": UBUNTU_IMAGE, "label": "Ubuntu 24.04 (sudo / apt)",
+                         "command": ["sleep", "infinity"], "accounts": [asdict(UBUNTU_USER)],
+                         "workstation": True, "custom_username": True, "machine_setup": True,
+                         "reserved_usernames": sorted(RESERVED_USERNAMES),
+                         "resources": {"memory_mb": 512, "cpu_millicores": 1000}})
+    return profiles + [deepcopy(profile) for profile in PROFILES if profile["image"] in allowed_images]

@@ -1,4 +1,5 @@
 import ctypes
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -32,7 +33,7 @@ def sync_tree(directory, owner):
             os.close(descriptor)
 
 
-def update_catalog(catalog, lab_id, snapshot, expected_digest, policy):
+def update_catalog(catalog, lab_id, snapshot, expected_digest, policy, *, record_origin=None):
     destination = lab_directory(catalog, lab_id)
     original = destination.stat(follow_symlinks=False)
     if read_directory(destination)[2] != expected_digest:
@@ -42,6 +43,8 @@ def update_catalog(catalog, lab_id, snapshot, expected_digest, policy):
     exchanged = False
     committed = False
     cleanup_pending = False
+    preserve_stage = False
+    replacement_digest = digest(snapshot["definition"], snapshot["assets"])
     try:
         stage = Path(tempfile.mkdtemp(prefix=".cyberlab-update-", dir=catalog))
         materialize(snapshot, stage)
@@ -63,12 +66,22 @@ def update_catalog(catalog, lab_id, snapshot, expected_digest, policy):
                     or read_directory(stage)[2] != expected_digest):
                 raise DraftConflict("Installed Lab changed concurrently; the previous version was restored")
             os.fsync(parent)
+            if record_origin is not None:
+                record_origin(replacement_digest)
         except BaseException:
-            actual = os.stat(destination.name, dir_fd=parent, follow_symlinks=False)
-            if (actual.st_dev, actual.st_ino) == (staged.st_dev, staged.st_ino):
-                exchange(parent, stage.name, destination.name)
-                exchanged = False
-                os.fsync(parent)
+            preserve_stage = True
+            logging.warning("Interrupted Lab update: retaining recovery directory %s", stage)
+            try:
+                actual = os.stat(destination.name, dir_fd=parent, follow_symlinks=False)
+                unchanged = ((actual.st_dev, actual.st_ino) == (staged.st_dev, staged.st_ino)
+                             and read_directory(destination)[2] == replacement_digest)
+            except Exception:
+                unchanged = False
+            if not unchanged:
+                raise DraftConflict("Installed Lab changed during update recovery; versions retained for administrator recovery") from None
+            exchange(parent, stage.name, destination.name)
+            exchanged = False
+            os.fsync(parent)
             raise
         committed = True
         try:
@@ -77,11 +90,11 @@ def update_catalog(catalog, lab_id, snapshot, expected_digest, policy):
         except OSError:
             cleanup_pending = True
         return {"lab_id": lab_id, "version": replacement.metadata.version,
-                "catalog_digest": digest(snapshot["definition"], snapshot["assets"]),
+                "catalog_digest": replacement_digest,
                 "cleanup_pending": cleanup_pending}
     finally:
         try:
-            if stage is not None and not exchanged and not committed:
+            if stage is not None and not exchanged and not committed and not preserve_stage:
                 remove_tree(parent, stage.name)
         finally:
             os.close(parent)

@@ -22,7 +22,13 @@ on both clean VMs and existing desktops.
 These are package-manager adapters, not results of installation certification
 on every release or derivative. Requirements: systemd, System D-Bus, Bash,
 Python >=3.12 with venv/ensurepip, Quickshell >=0.3.1, matching native Qt/QML
-packages, Docker Engine, Konsole and a graphical session (X11 or Wayland).
+packages, Docker Engine and a graphical session (X11 or Wayland).
+Automatic windows reuse a compatible native terminal already installed for the
+desktop account. Konsole is optional. If none is found, the normal dependency
+plan adds `xfce4-terminal`, not the Xfce desktop. Discovery reads executable
+availability as the target user without launching terminals or reading root's
+preferences. If Python is not yet available, this decision is deferred until
+after its installation; an unknown inventory is not treated as empty.
 The installer probes the needed QML imports and SVG icon decoding offscreen
 before registering the app service. On APT releases with a separate
 `qt6-svg-plugins` package, it includes that plugin as well as `libqt6svg6`;
@@ -106,9 +112,10 @@ before execution. Existing packages are reused; upgrades are blocked unless
 and downgrades are rejected even with that option. Save work in other apps
 before approving upgrades to shared libraries such as Qt on a daily-use desktop.
 On Fedora, that approval also includes reviewed `libgcc`/`libstdc++` runtime
-updates when available. The native Konsole check catches C++ symbol mismatches
-before registering the application; no automatic library upgrade occurs without
-the flag. DNF5 stores a download-only plan without sudo, then replays exactly
+updates when available. Native QML probing still checks Studio's runtime;
+terminal discovery only checks availability, not graphical launch or library
+compatibility. No automatic library upgrade occurs without the flag.
+DNF5 stores a download-only plan without sudo, then replays exactly
 the reviewed transaction with weak dependencies disabled and signature checks
 enabled. Large first-time desktop dependency sets can take several minutes.
 After a kernel upgrade, reboot yourself first. If modules for the running
@@ -142,7 +149,10 @@ sudo bash install.sh --check --user "$USER"  # Include privileged Docker API hea
 `--install-deps` is an alias for the default fresh-install behavior, retained
 for older instructions. Operations are mutually exclusive. `--appimage` is no
 longer an installer option. `--check` checks native versions, offscreen QML
-imports, Konsole and the system Docker service. It never starts a service.
+imports, native terminal availability and the system Docker service. It never
+starts a service or opens a terminal. Missing terminals are a separate warning;
+CLI/headless operation remains usable. `--check`, `--update` and `--no-deps`
+never install a fallback, remove existing terminals or change desktop defaults.
 Run it as root with `--user` to include Docker socket/API health; an unprivileged
 check reports that gate as unverified and returns status 2 rather than claiming
 full readiness. These checks run before app installation/registration. Only the
@@ -180,6 +190,7 @@ verification Lab/Session and installs no examples.
 | `/usr/bin/qs` or `/usr/bin/quickshell` | Native Quickshell managed by the distribution, not copied by CyberLab. |
 | `/usr/local/bin/cyberlab`, `/usr/local/bin/cyberlab-studio` | CLI and desktop launcher. |
 | `/usr/share/applications/cyberlab-studio.desktop` | Application-menu entry. |
+| `/usr/lib/cyberlab/venv/share/cyberlab/cyberlab-studio.svg` | Original CyberLab app icon, bundled in the wheel and covered by venv rollback. |
 | `/etc/cyberlab/daemon.toml` | Per-machine catalog, user/image allowlists and authoring configuration. |
 | `/etc/systemd/system/cyberlabd.service` and its drop-in | Privileged service and reviewed catalog-write policy. |
 | `/etc/dbus-1/system.d/org.ptit.CyberLab1.conf` | Shared System D-Bus policy. |

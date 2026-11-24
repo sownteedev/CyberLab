@@ -1,154 +1,165 @@
-# Configured Terminal Windows (0.4.0)
+# Native Terminal Selection and Session Windows
 
-## Workflow and Architecture
+## User Workflow
 
-On the Ubuntu VM desktop, `cyberlab start demo-basic` now requests a separate
-Konsole window for each node listed in the Lab's optional `terminals` field:
+Studio > Settings > Terminal shows the selected application and why it was
+selected. With two or more compatible terminals, the selector offers Auto plus
+the installed applications. With one, its name is shown without a selector.
+Rescan checks again after software is installed or removed. Changes affect only
+future windows and never migrate or close existing attachments.
 
-```yaml
-terminals: [client, server]
-```
-
-1. CLI requests StartLab over System D-Bus as before.
-2. The daemon/engine creates the restricted containers and isolated networks.
-3. The daemon replies with the Session state and terminal plan from its captured
-   Lab template. The CLI prints the Session JSON before attempting any windows.
-4. Only when the state is RUNNING, the CLI launches the configured windows in
-   order. Each runs the same Python environment's `cyberlab_cli.main terminal
-   SESSION_ID NODE_ID`, which connects through the existing daemon API.
-
-The architecture is unchanged. The daemon never starts Konsole, and the engine
-does not import GUI code. No Quickshell, new privileged API, protocol, session
-agent, Docker access in the CLI, or system service change is introduced.
-
-The Lab schema accepts up to four unique declared node IDs. The optional field
-is backwards-compatible for new readers of old v1 definitions. No window title,
-host command, shell script, emulator path, or profile comes from the Lab. The
-CLI also validates the returned plan before launching, then uses a fixed
-`/usr/bin/konsole --separate --builtin-profile -e ...` argv with no shell.
-The child Python invocation uses `-I`, and private D-Bus test mode is propagated
-only when the parent CLI was explicitly started in that mode.
-
-Both Lab and Session D-Bus dictionaries include `terminals: as`; existing field
-types and method signatures are unchanged. GetCapabilities adds `terminal-plan`.
-Using the Session's plan avoids a race with a changed catalog after StartLab.
-
-## Headless and Failure Behavior
+The same unprivileged preference is used by the CLI:
 
 ```sh
-cyberlab start demo-basic --no-terminals
+cyberlab terminal-apps
+cyberlab terminal-apps --set blackbox
+cyberlab terminal-apps --set auto
 ```
 
-This starts the same lab without launching windows and is the recommended form
-for scripts and verification. The updated administrator verifier uses it whenever
-the daemon supports terminal plans. Old daemons remain compatible with the
-verifier's older start invocation.
+These commands return JSON and work without connecting to cyberlabd. Preference
+storage is `$XDG_CONFIG_HOME/cyberlab/terminal.json`, or
+`~/.config/cyberlab/terminal.json`; only a version and known terminal ID are
+stored. Writes are atomic and user-private. Appearance's `studio.ini` is
+unchanged. Reads never repair or overwrite a malformed preference file.
 
-Automatic windows also require non-root execution, interactive stdout, a DISPLAY
-or WAYLAND_DISPLAY, and executable `/usr/bin/konsole`. Otherwise the CLI keeps
-the RUNNING Session and prints manual attachment commands to stderr. Redirected
-JSON output therefore never opens windows. Missing/empty plans (including replies
-from older daemons) open nothing. A failed StartLab opens nothing. Status, stop,
-and reset do not launch windows or silently attach a second time.
+Selection order:
 
-Launch diagnostics use stderr so stdout stays valid Session JSON. If one window
-cannot be started, the remaining configured nodes are still attempted. A failure
-to open a window does not stop/delete the Session, retry StartLab, or change the
-successful start exit status. The CLI checks for immediate Konsole exits but
-cannot guarantee a visible window or successful attachment: “Requested terminal
-window” is not an acknowledgement from the node shell. If a window fails later,
-use the printed Session ID with `cyberlab terminal SESSION_ID NODE_ID`; do not
-start another Session just to recover a window.
+1. Available explicit CyberLab choice.
+2. XDG default: query `xdg-terminal-exec --print-id` if installed, otherwise
+   consult desktop-specific and generic `xdg-terminals.list` files in XDG
+   configuration/data order. Unsupported helper results fall back to the lists.
+3. `TERMINAL`, when it identifies a supported executable, not a shell command.
+4. A supported target of `x-terminal-emulator`.
+5. The first available adapter ID in stable alphabetical order, respecting
+   fallback exclusions read from XDG lists.
 
-`Ctrl+]`, `exit`, and window closure affect the attachment/shell as described in
-`terminal-mvp.md`; they do not stop the Lab. Explicitly run `cyberlab stop
-SESSION_ID` on the host when finished. The CLI records the PIDs and process
-groups of windows it launches in the user's runtime directory. A confirmed
-`STOPPED` response then sends `SIGTERM` through Linux pidfds to verified Konsole
-processes belonging to that Session (not to an arbitrary stored process group);
-stale or already-closed PIDs are ignored. Windows opened manually with
-`cyberlab terminal` are not tracked and must still be closed manually.
+The helper is queried only if its help advertises `--print-id`; older helpers
+fall back to the lists without receiving an unsupported launch argument.
+Unknown XDG directives/entries are ignored. Desktop action IDs select the
+application; custom action commands/profiles are not imported into CyberLab.
+There is no prompt blocking the first launch. If a saved application disappears,
+its ID remains saved while Auto is used temporarily and a warning is shown.
 
-## Shared Studio launcher
+## Supported Native Applications
 
-`cyberlab open-terminals SESSION_ID` fetches the Session over the same daemon
-API and opens its configured auto-open slots, including when stdout is captured
-by Studio. `--node NODE_ID --slot N` requests one declared slot even if that node
-is not configured for auto-open. Non-root execution and a graphical desktop are
-still required. Studio delegates all window launches to this CLI command; it no
-longer constructs a separate Konsole invocation.
+Black Box, Konsole, GNOME Terminal, GNOME Console, Ptyxis, Xfce Terminal, Kitty,
+Foot, Alacritty, Ghostty, WezTerm, Tilix, MATE Terminal, LXTerminal and XTerm have
+explicit command adapters. Discovery checks executable native binaries on
+absolute PATH entries, deduplicates aliases and does not launch them. Flatpak,
+Snap, custom shell wrappers and arbitrary user-entered launch commands are not
+supported. Discovery is not proof that an application can render on the current
+desktop or that its native libraries are healthy.
 
-After a successful reset, the CLI requests closure of old tracked windows and
-Studio opens the reset Session's configured windows. Failed stop/reset replies
-do not signal windows. Tracking failures are warnings, not a false failure of
-the completed lifecycle operation. A requested close is not a GUI confirmation.
+The installer reuses existing compatible applications. Only an empty inventory
+adds `xfce4-terminal` to the reviewed dependency transaction; it does not install
+the Xfce desktop or replace the OS default. Check/update/no-deps never install
+terminal packages. If discovery cannot run yet, do not infer an empty inventory.
 
-Registries are separated by system bus versus private test-bus address. Updates
-are locked, records are bounded, and cleanup checks UID, process start time and
-the exact Session-bearing CLI command before signaling a pinned process handle.
-Old unnamespaced registry files are not trusted for cleanup; windows opened by
-the previous launcher may need to be closed manually once after upgrade.
+## Architecture and Launch Contract
 
-## Update the Existing VM
+Studio calls `cyberlab open-terminals SESSION_ID`, optionally with
+`--node NODE_ID --slot N`. Start/resume use the same launcher unless
+`--no-terminals` is passed. Each terminal runs the same Python environment's
+`cyberlab_cli.main terminal` client with isolation (`-I`). The client attaches
+through the existing System D-Bus API; the daemon/Engine never launch GUI
+applications, and UI/CLI never access Docker directly.
 
-The installed 0.3.1 runtime has passed real-Docker verification. This coding task
-does not stop it, alter system files, or install 0.4.0. The repository example
-`demo-basic` is now version 1.1.0 and contains `terminals: [client, server]`.
-Updating only the application wheel will **not** change an installed Lab, so this
-release provides an explicit, guarded `--update-demo-basic` repair option.
+The returned Session snapshot supplies the declared nodes, slots and display
+metadata. No executable or host command comes from a Lab. Every adapter passes
+display titles as encoded CLI data, avoiding emulator-side variable expansion;
+the attached client decodes and sets the bounded title. Every adapter uses
+an explicit argv without `shell=True`. Black Box 0.15 internally runs commands
+through its configured shell even when given `--`; its adapter therefore uses
+`--command` with a fixed `exec` and individually quoted CLI arguments. Lab
+metadata remains literal data, never shell syntax. Tilix receives a quoted
+command string for its GLib argv parser, not a shell. Other adapters pass the
+child argv directly. Konsole retains grouped tabs based on its built-in profile:
+private per-tab profiles preserve quoted argv, because the tab file's `command:`
+field splits on spaces without respecting quotes. Titles are stripped of control
+characters/separators. Other applications receive one launch per slot, retaining
+group/title context. Private test-bus mode is propagated only when explicitly
+selected by the parent CLI.
 
-Review changes and build/check the bundle as student (skip build if it exists):
+Automatic CLI windows require a non-root graphical session and interactive
+stdout. Studio's explicit open command may capture stdout. Without a desktop,
+CLI start/resume keep the Session and print manual attachment instructions:
 
 ```sh
-cd /home/student/CyberLab
-.venv/bin/python tools/deploy_mvp.py build dist/mvp-windows-0.4.0
-.venv/bin/python tools/deploy_mvp.py check dist/mvp-windows-0.4.0
+cyberlab terminal SESSION_ID NODE_ID --slot 0
 ```
 
-**Stopping the daemon deletes all current MVP Sessions and their temporary
-container data.** Finish all users' lab work and inspect `cyberlab sessions`
-before running this administrator update in the VM terminal:
+The direct terminal command and `--no-terminals` remain independent of graphical
+terminal discovery. Window failures never retry StartLab, stop/delete a Session
+or change a successful start into a failed Lab operation. The explicit
+`open-terminals` command returns a nonzero status on launch/attachment failure
+and adds `terminal_launch` diagnostics to its Session JSON for Studio.
+
+## Attachment Tracking and Cleanup
+
+Each managed launch gets a unique identifier. After a successful D-Bus attach,
+the child CLI registers its own PID, process start time, interpreter and exact
+Session/node/slot argv in the private per-user runtime registry. The launcher
+waits up to five seconds for confirmation. A terminal application's launcher
+exiting with code zero is not itself a failure: GUI applications may forward
+requests to an already-running process. Lack of confirmation is reported, not
+silently treated as successful attachment.
+
+After confirmed stop/suspend/reset/submission completion, cleanup signals only
+the verified child CLI using pidfds. It never terminates a shared terminal
+application or broadcasts a process-group/name kill. Manual host terminals are
+not registered. Stale PID/start-time mismatches and legacy emulator-only records
+are ignored; an old record never authorizes killing an emulator. Normally the tab/window
+closes when its child exits; a user's hold-open preference may leave an exited
+tab to close manually. Detaching/closing a terminal does not stop its Lab.
+
+## Validation
+
+Run isolated regression checks with a Python environment containing the project
+dependencies:
 
 ```sh
-sudo systemctl disable --now cyberlabd.service &&
-sudo /usr/bin/python3 -I tools/deploy_mvp.py repair dist/mvp-windows-0.4.0 --uid "$(id -u)" --update-demo-basic
+python -I -B tools/check_terminal_apps.py
 ```
 
-The normal repair trust checks and no-leftover-resources requirement still apply.
-The optional Lab update accepts only the byte-for-byte original bundled demo
-(identified by its known SHA256) or one already identical to the new bundle.
-Customized definitions are refused, not overwritten. A copy of the previous
-definition is retained in the root-private repair staging directory and checked
-before package installation. The new definition is validated using the installed
-schema before root-owned installation to the fixed `demo-basic/lab.yaml` path.
-Other labs, daemon configuration, policy, dependencies, unit, and account
-permissions are unchanged. Without the option, repair still preserves all labs.
+Checks cover selection precedence, multiple/single/absent applications,
+malformed/stale/symlink preferences, literal argv, slots, grouped-tab quoting,
+shared-process launch acknowledgement, stale/foreign process rejection and
+mocked package plans for four distro families. They never call real Docker,
+the production system bus or package managers.
 
-As before, failure retains the deployment and staging files, with no automatic
-rollback. A package may already have been updated if later validation fails.
-Read the error; do not delete all Docker resources or blindly rerun the installer.
+The existing Studio smoke supports `CYBERLAB_STUDIO_TERMINAL_SETTINGS_TEST=1`
+with a private test bus and a config root below `/tmp/cyberlab-terminal-*`.
+It checks selection, rescan and dialog reopening; a second offscreen process
+can set `CYBERLAB_STUDIO_TERMINAL_EXPECTED=ID` to assert persisted selection.
+`CYBERLAB_STUDIO_TERMINAL_COUNT=N` asserts an inventory isolated via PATH;
+the selector must be hidden for zero/one application and visible for several.
+Fixtures, draft storage and config must all be temporary. Clean up only tracked
+test processes; preserve the user's Studio and terminal windows.
 
-## Desktop Acceptance Test
+Mocked adapters are not certification of every terminal/distro/version.
+Validate real Black Box/Konsole attachments with MemoryRuntime on a private bus,
+and report actual coverage separately from real-Docker/manual acceptance.
+Runtime rollout uses the guarded updater after every allowed user's Session is
+STOPPED, preserves unsaved editor work and never modifies production Labs.
 
-After the administrator command reports DONE, use a normal Konsole as student:
+### Local Verification (2026-10-28)
 
-```sh
-cyberlab info
-cyberlab show demo-basic
-cyberlab start demo-basic
-```
+- 28 isolated regression checks pass, including mocked dependency plans for
+  Arch, Debian/Ubuntu, Fedora and openSUSE. No package manager was invoked.
+- Offscreen Studio smoke passes with zero, one and two native applications,
+  compact Settings, save/rescan/reopen and persisted choice after restart.
+- Real Black Box and Konsole attach three slots against a private MemoryRuntime
+  daemon. Busy-slot rejection, reset, suspend/resume and stop pass; an unrelated
+  Black Box control tab survives Session cleanup. A Python path containing spaces
+  and titles containing spaces/quotes also pass, including grouped Konsole tabs.
+- Other adapters have argv regression coverage, not live graphical acceptance.
+  These checks do not exercise real Docker, the production catalog or user work.
+- The installed runtime is not updated by these checks. Deployment still needs
+  the guarded updater, all-users STOPPED verification and preserved editor work;
+  this development session has no noninteractive administrator access.
 
-Expect version 0.4.0, a `terminal-plan` capability, and a `terminals` list containing
-client/server. A RUNNING Session JSON should appear, then two new Konsole windows.
-In each window run `id`, `hostname`, and `pwd`: expect UID/GID 65534, respectively
-client/server, and initially `/tmp`. This test checks windows and attachment,
-not packet delivery between nodes. Stop the Session afterwards on the host.
-
-The automatic test suite checks schema compatibility/reference validation,
-immutable Session plans, exact launcher argv, test-bus propagation, headless/root
-guards, no-terminal mode, launch failures, JSON ordering, and guarded demo update.
-The existing private-bus smoke test checks terminal plans and actual CLI TTY I/O
-using MemoryRuntime. Launcher tests mock process creation; **they do not prove
-visible Konsole windows on the VM**. The administrator verifier still checks real
-Docker lifecycle and a CLI shell, but it deliberately does not spawn GUI windows.
-Visible-window acceptance remains the student's desktop test above.
+Verified candidate: `cyberlab_engine-0.9.0-py3-none-any.whl`, SHA-256
+`d464d7c0fd527e1ca2f689276511efdec02bf5094d52df23d9ee1d520a0ecbd0`.
+The 28 checks, offscreen Studio and native Black Box/Konsole lifecycle checks
+also pass using this wheel extracted into a temporary venv; it is not an
+installed-runtime receipt.

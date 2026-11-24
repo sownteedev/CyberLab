@@ -17,7 +17,7 @@ def report_summary(payload):
     if not isinstance(payload, str) or len(payload.encode("utf-8")) > MAX_REPORT_BYTES:
         raise ReportLimit("Checkwork report exceeds 8 MiB")
     report = json.loads(payload)
-    if not isinstance(report, dict) or report.get("status") not in {"PASS", "FAIL", "ERROR", "NO_CRITERIA"}:
+    if not isinstance(report, dict) or report.get("status") not in {"PASS", "FAIL", "ERROR", "NO_CRITERIA", "COLLECTED"}:
         raise ValueError("Invalid Checkwork report")
     return {"lab_id": report.get("lab_id", ""), "lab_name": report.get("lab_name", ""),
             "lab_version": report.get("lab_version", ""), "status": report["status"],

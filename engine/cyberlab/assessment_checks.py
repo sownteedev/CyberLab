@@ -4,6 +4,7 @@ from time import monotonic
 
 from cyberlab.regex_check import MAX_REGEX_SECONDS, RegexCheckError, group, search, select_line
 from cyberlab.workspace import relative_path
+from cyberlab.result_collection import collect_result
 
 MAX_TEXT_BYTES = 64 * 1024
 
@@ -53,9 +54,15 @@ def combined_status(statuses, mode="all"):
     decisive = "PASS" if mode == "any" else "FAIL"
     if decisive in statuses:
         return decisive
-    if "ERROR" in statuses:
+    if any(status not in {"PASS", "FAIL"} for status in statuses):
         return "ERROR"
     return "FAIL" if mode == "any" else "PASS"
+
+def assessment_status(goals, results):
+    if goals:
+        return combined_status([item["status"] for item in goals])
+    statuses = [item["status"] for item in results if item["status"] != "COLLECTED"]
+    return combined_status(statuses) if statuses else "COLLECTED" if results else "NO_CRITERIA"
 
 
 def check_result(result, entries_by_node, errors, regex_deadline=None):
@@ -67,6 +74,8 @@ def check_result(result, entries_by_node, errors, regex_deadline=None):
     if entries is None:
         return {**base, "status": "ERROR", "message": "Node workspace was not captured"}
     relative_path(result.path)
+    if result.operator == "collect":
+        return collect_result(result, entries, base, regex_deadline)
     entry = entries.get(result.path)
     if entry is None:
         return {**base, "status": "FAIL", "message": "Workspace path was not found"}
@@ -114,14 +123,14 @@ def check_result(result, entries_by_node, errors, regex_deadline=None):
             passed = value == result.expected
             return {**base, "value": value, "status": "PASS" if passed else "FAIL",
                     "message": "Condition satisfied" if passed else "Condition not yet satisfied"}
-        elif result.operator == "field_equals":
+        elif result.operator in {"field_equals", "extract"}:
             try:
                 value = _field_value(result, contents, regex_deadline)
             except RegexCheckError as error:
                 return {**base, "status": "ERROR", "message": str(error)}
             if value is None:
                 return {**base, "status": "FAIL", "message": "Selected field was not found"}
-            passed = value == result.expected
+            passed = result.operator == "extract" or value == result.expected
             return {**base, "value": value, "status": "PASS" if passed else "FAIL",
                     "message": "Condition satisfied" if passed else "Condition not yet satisfied"}
         elif result.operator == "regex":

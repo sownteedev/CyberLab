@@ -2,11 +2,12 @@ import QtQuick
 
 QtObject {
     id: service
+
     required property var api
-    property var review: null
     property string error: ""
-    property bool loading: false
     property int generation: 0
+    property bool loading: false
+    property var review: null
 
     function clear() {
         generation++;
@@ -15,9 +16,9 @@ QtObject {
         loading = false;
     }
     function load(paths) {
-        if (loading || api.busy || !api.capabilities.includes("submission-review")) return;
-        if (!Array.isArray(paths) || paths.length < 1 || paths.length > 32
-                || paths.some(path => typeof path !== "string" || !path.startsWith("/"))) {
+        if (loading || api.busy || !api.capabilities.includes("submission-review"))
+            return;
+        if (!Array.isArray(paths) || paths.length < 1 || paths.length > 32 || paths.some(path => typeof path !== "string" || !path.startsWith("/"))) {
             error = "Chọn từ 1 đến 32 file ZIP trong VM.";
             return;
         }
@@ -26,10 +27,12 @@ QtObject {
         error = "";
         review = null;
         api.request(["review-submissions"].concat(paths), (result, problem) => {
-            if (current !== service.generation) return;
+            if (current !== service.generation)
+                return;
             service.loading = false;
             service.error = problem || "";
-            if (!problem) service.review = result;
+            if (!problem)
+                service.review = result;
         });
     }
 }

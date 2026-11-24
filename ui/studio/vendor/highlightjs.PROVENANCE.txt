@@ -1,0 +1,19 @@
+highlight.js 11.11.1 - BSD-3-Clause (see highlightjs.LICENSE.txt)
+Upstream: https://github.com/highlightjs/highlight.js
+Archive: https://registry.npmjs.org/highlight.js/-/highlight.js-11.11.1.tgz
+Integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==
+
+Rebuild with: python tools/vendor_code_syntax.py /path/to/highlight.js-11.11.1.tgz
+Included: core, Python, Bash, JSON, YAML, JavaScript and Markdown.
+No language autodetection, browser DOM calls or runtime downloads are used.
+
+QML compatibility adaptations, reproduced by the generator:
+- Wrap CommonJS modules and export a single ES module engine.
+- Skip null/undefined in deepFreeze; the QML engine reports null as unfrozen.
+- Declare _highlight closure locals before nested functions, retaining their
+  original assignment order, to avoid Qt's used-before-declared diagnostics.
+- Replace Python Unicode property escapes with ASCII identifiers plus a broad
+  BMP range, because this QML runtime rejects XID_Start/XID_Continue escapes.
+  This is coloring, not Python identifier validation or syntax checking.
+
+The original upstream copyright/license notice is preserved in the license file.

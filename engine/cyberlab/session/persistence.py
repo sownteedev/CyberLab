@@ -17,10 +17,11 @@ from . import Session, SessionState
 from .reports import ReportStore, migrate_reports
 from .quiz import QuizStore
 from .lab_quiz import LabQuizStore, migrate_lab_quizzes
+from cyberlab.lab.workstation import validate_images
 
 MAX_SAVED_SESSIONS_PER_USER = 10
 MAX_TOTAL_SAVED_SESSIONS = 50
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class PracticeLimit(Exception):
@@ -81,6 +82,8 @@ class PracticeStore:
                 conn.execute("ALTER TABLE saved_sessions ADD COLUMN package TEXT")
             if "parameters" not in {column[1] for column in conn.execute("PRAGMA table_info(saved_sessions)")}:
                 conn.execute("ALTER TABLE saved_sessions ADD COLUMN parameters TEXT NOT NULL DEFAULT '{}'")
+            if "system_images" not in {column[1] for column in conn.execute("PRAGMA table_info(saved_sessions)")}:
+                conn.execute("ALTER TABLE saved_sessions ADD COLUMN system_images TEXT NOT NULL DEFAULT '{}'")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS saved_workspaces (
                     session_id TEXT NOT NULL REFERENCES saved_sessions(id) ON DELETE CASCADE,
@@ -122,7 +125,8 @@ class PracticeStore:
 
     def save_checkpoint(self, session_id: str, owner: int, created_at: str, updated_at: str,
                         checkpoint_at: str, state: str, definition: str, workspaces: dict[str, bytes], package: dict,
-                        parameters: dict | None = None, *, check_report: dict | None = None):
+                        parameters: dict | None = None, *, check_report: dict | None = None, system_images=None):
+        system_images = validate_images(system_images or {})
         encoded = encode_package(package, definition)
         for node_id, data in workspaces.items():
             if not isinstance(data, bytes) or len(data) > MAX_ARCHIVE:
@@ -136,10 +140,10 @@ class PracticeStore:
             if not existing and total >= MAX_TOTAL_SAVED_SESSIONS:
                 raise PracticeLimit("Total saved practice limit reached; discard an old checkpoint to free space")
             conn.execute("""
-                INSERT OR REPLACE INTO saved_sessions (id, owner, created_at, updated_at, checkpoint_at, state, definition, package, parameters)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO saved_sessions (id, owner, created_at, updated_at, checkpoint_at, state, definition, package, parameters, system_images)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (session_id, owner, created_at, updated_at, checkpoint_at, state, definition, encoded,
-                   json.dumps(parameters or {}, ensure_ascii=True, sort_keys=True)))
+                   json.dumps(parameters or {}, ensure_ascii=True, sort_keys=True), json.dumps(system_images)))
             conn.execute("DELETE FROM saved_workspaces WHERE session_id=?", (session_id,))
             conn.executemany("""
                 INSERT INTO saved_workspaces (session_id, node_id, archive)
@@ -149,6 +153,13 @@ class PracticeStore:
                 self.reports.save(check_report["id"], session_id, owner, check_report["created_at"],
                                   json.dumps(check_report, ensure_ascii=True, separators=(",", ":")),
                                   connection=conn)
+
+    def update_session_state(self, session):
+        with self.transaction() as conn:
+            conn.execute("""
+                UPDATE saved_sessions SET state=?, updated_at=?
+                WHERE id=? AND owner=? AND checkpoint_at=?
+            """, (str(session.state), session.updated_at, session.id, session.owner_uid, session.checkpoint_at))
 
     def load_sessions(self) -> list[tuple[Session, dict | None]]:
         """Restore captured packages; never substitute the current catalog for missing assets."""
@@ -180,7 +191,7 @@ class PracticeStore:
                         id=row["id"],
                         lab=lab,
                         owner_uid=row["owner"],
-                        state=SessionState.SUSPENDED,
+                        state=SessionState.STOPPED if row["state"] == "STOPPED" else SessionState.SUSPENDED,
                         created_at=row["created_at"],
                         updated_at=row["updated_at"],
                         checkpoint_at=row["checkpoint_at"],
@@ -210,12 +221,23 @@ class PracticeStore:
                 "state": row["state"],
                 "parameters": json.loads(row["parameters"] or "{}") if "parameters" in row.keys() else {},
                 "workspaces": workspaces,
+                "system_images": validate_images(json.loads(row["system_images"])),
             }
+
+    def system_image_ids(self):
+        with self.transaction() as conn:
+            rows = conn.execute("SELECT system_images FROM saved_sessions").fetchall()
+            return {image for row in rows for image in validate_images(json.loads(row[0])).values()}
 
     def delete_checkpoint(self, session_id: str) -> bool:
         with self.transaction() as conn:
             conn.execute("DELETE FROM saved_sessions WHERE id=?", (session_id,))
             return True
+
+    def reset_session(self, session_id, owner):
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM saved_sessions WHERE id=? AND owner=?", (session_id, owner))
+            conn.execute("DELETE FROM quiz_attempts WHERE session_id=? AND owner=?", (session_id, owner))
 
     def save_check_report(self, report_id, session_id, owner, created_at, payload):
         return self.reports.save(report_id, session_id, owner, created_at, payload)

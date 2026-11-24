@@ -3,8 +3,8 @@ Version=1.0
 Type=Application
 Name=CyberLab Studio
 Comment=Create and practice isolated local labs
-Exec=/usr/local/bin/cyberlab-studio
-Icon=applications-education-science
+Exec=/usr/bin/env QS_APP_ID=cyberlab-studio /usr/local/bin/cyberlab-studio
+Icon=/usr/lib/cyberlab/venv/share/cyberlab/cyberlab-studio.svg
 Terminal=false
 Categories=Education;Science;
 StartupNotify=false
