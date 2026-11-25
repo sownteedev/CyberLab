@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--artifacts", type=Path)
     parser.add_argument("--native", action="store_true", help="Also load the practice/editor view in native Quickshell offscreen")
     parser.add_argument("--allow-worker-init-warning", action="store_true", help="Accept only the diagnosed Qt 6.12 WorkerScript null-connect warning; keep it in logs")
-    parser.add_argument("--suite", choices=("notifications", "navigation", "library", "practice", "lifecycle", "desktop", "dialogs", "landing", "editor", "files", "software", "zoom", "labtainer", "gui", "quiz", "components", "assessment", "markdown"), default="notifications")
+    parser.add_argument("--suite", choices=("notifications", "navigation", "library", "practice", "lifecycle", "desktop", "dialogs", "landing", "editor", "files", "software", "zoom", "labtainer", "gui", "quiz", "components", "assessment", "markdown", "updates"), default="notifications")
     arguments = parser.parse_args()
     if arguments.native and arguments.suite not in {"practice", "editor", "files"}:
         parser.error("--native checks the practice, editor and files suites")
@@ -54,7 +54,7 @@ def main():
         root = Path(temporary)
         for name in ("config", "cache", "data", "runtime", "home", "probe", "artifacts"):
             (root / name).mkdir(mode=0o700)
-        component = {"navigation": "NavigationTest", "notifications": "NotificationsTest", "library": "LibraryTest", "practice": "PracticeTest", "lifecycle": "LifecycleTest", "desktop": "DesktopTest", "dialogs": "DialogsTest", "landing": "DraftLandingTest", "editor": "DraftEditorTest", "software": "SoftwareEditorTest", "zoom": "ZoomTest", "labtainer": "LabtainerCompatibilityTest", "gui": "GuiSettingsTest", "files": "FileWorkspaceTest", "quiz": "QuizTest", "components": "ComponentsTest", "assessment": "AssessmentServiceTest", "markdown": "MarkdownTest"}[arguments.suite]
+        component = {"navigation": "NavigationTest", "notifications": "NotificationsTest", "library": "LibraryTest", "practice": "PracticeTest", "lifecycle": "LifecycleTest", "desktop": "DesktopTest", "dialogs": "DialogsTest", "landing": "DraftLandingTest", "editor": "DraftEditorTest", "software": "SoftwareEditorTest", "zoom": "ZoomTest", "labtainer": "LabtainerCompatibilityTest", "gui": "GuiSettingsTest", "files": "FileWorkspaceTest", "quiz": "QuizTest", "components": "ComponentsTest", "assessment": "AssessmentServiceTest", "markdown": "MarkdownTest", "updates": "UpdateUiTest"}[arguments.suite]
         if arguments.suite == "files":
             component = "FileWorkspaceTest"
         test = f'''import {json.dumps((arguments.studio.resolve() / "testing").as_uri())} as Checks

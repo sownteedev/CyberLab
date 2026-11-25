@@ -94,7 +94,8 @@ async def serve(arguments):
                                                          active_images=engine.software_image_ids)
                 runtime.prepared_software = authoring.software
                 await asyncio.to_thread(engine._cleanup_software_images)
-        server = Server(bus, engine, allowed_uids, authoring)
+        server = Server(bus, engine, allowed_uids, authoring,
+                        maintenance_path=None if arguments.test_session_bus else Path("/run/cyberlab/maintenance.lock"))
         bus.add_message_handler(server.handle)
         async def reap_desktops():
             while True:

@@ -48,6 +48,11 @@ Item {
             name: "AccountEditor"
             when: window.visible
             function init() {
+                const manager = findChild(panel, "accountManagerDialog");
+                if (manager) {
+                    manager.close();
+                    tryCompare(manager, "visible", false);
+                }
                 Studio.Theme.reducedMotion = true;
                 window.width = 640;
                 window.height = 900;
@@ -74,11 +79,14 @@ Item {
                 return {id: "fixture", revision: 3, digest: "new", assets: [], definition: service.definition};
             }
             function control(name) {
-                const item = findChild(panel, name);
+                const manager = findChild(panel, "accountManagerDialog");
+                const item = (manager && manager.opened ? findChild(manager.contentItem, name) : null) || findChild(panel, name);
                 verify(item !== null, name);
-                const position = item.mapToItem(scroll.contentItem, 0, 0);
-                scroll.contentItem.contentY = Math.max(0, Math.min(scroll.contentItem.contentHeight - scroll.height,
-                    scroll.contentItem.contentY + position.y - scroll.height / 3));
+                wait(30);
+                const viewport = manager && manager.opened ? findChild(manager, "accountsScroll") : scroll;
+                const position = item.mapToItem(viewport.contentItem, 0, 0);
+                viewport.contentItem.contentY = Math.max(0, Math.min(viewport.contentItem.contentHeight - viewport.height,
+                    viewport.contentItem.contentY + position.y - viewport.height / 3));
                 wait(10);
                 return item;
             }
@@ -93,9 +101,12 @@ Item {
             function test_collapsed_defaults_and_add_user() {
                 const toggle = findChild(panel, "extraAccountsToggle");
                 verify(toggle);
-                verify(!toggle.checked);
-                if (toggle.checked) mouseClick(toggle);
+                const manager = findChild(panel, "accountManagerDialog");
+                verify(manager !== null);
+                verify(!manager.visible);
+                verify(!toggle.checkable);
                 mouseClick(toggle);
+                tryCompare(manager, "opened", true);
                 const input = findChild(panel, "newAccountName");
                 input.text = "alice";
                 findChild(panel, "addAccount").click();
@@ -104,8 +115,103 @@ Item {
                 compare(service.document.nodes[0].setup.users[0].uid, 3000);
                 verify(service.dirty);
             }
+            function chooseSection(manager, index) {
+                wait(20);
+                const button = findChild(manager.contentItem, "accountsTab-" + index);
+                verify(button !== null);
+                mouseClick(button);
+                tryCompare(manager, "section", index);
+                wait(20);
+            }
+            function openManager(tab) {
+                mouseClick(control("extraAccountsToggle"));
+                const manager = findChild(panel, "accountManagerDialog");
+                tryCompare(manager, "opened", true);
+                chooseSection(manager, tab || 0);
+                return manager;
+            }
+            function test_manager_closes_on_context_change() {
+                const manager = openManager();
+                findChild(manager, "newAccountName").text = "unfinished";
+                service.selectedNode = 1;
+                tryCompare(manager, "visible", false);
+                compare(findChild(manager, "newAccountName").text, "");
+            }
+            function test_enter_adds_and_escape_preserves_accounts() {
+                const manager = openManager();
+                typeName("newAccountName", "alice");
+                keyClick(Qt.Key_Return);
+                compare(service.document.nodes[0].setup.users[0].name, "alice");
+                keyClick(Qt.Key_Escape);
+                tryCompare(manager, "visible", false);
+                compare(service.document.nodes[0].setup.users[0].name, "alice");
+            }
+            function test_invalid_and_duplicate_names_keep_input() {
+                const manager = openManager();
+                typeName("newAccountName", "root");
+                mouseClick(control("addAccount"));
+                verify(service.localError.length > 0);
+                compare(control("newAccountName").text, "root");
+                compare((service.document.nodes[0].setup || {}).users, undefined);
+                notices.errorToast.dismiss(false);
+                typeName("newAccountName", "alice");
+                mouseClick(control("addAccount"));
+                typeName("newAccountName", "alice");
+                mouseClick(control("addAccount"));
+                compare(service.document.nodes[0].setup.users.length, 1);
+                compare(control("newAccountName").text, "alice");
+            }
+            function test_cancel_removal_and_nested_password() {
+                service.accountChange(0, "addUser", "alice");
+                service.definitionDirty = false;
+                const manager = openManager();
+                mouseClick(control("expandAccount-alice"));
+                const passwordButton = control("openPassword-alice");
+                mouseClick(passwordButton);
+                let credentials = passwordButton.parent;
+                while (credentials && credentials.passwordState === undefined) credentials = credentials.parent;
+                verify(credentials !== null);
+                const passwordPopup = findChild(credentials, "passwordDialog-alice");
+                verify(passwordPopup !== null);
+                tryCompare(passwordPopup, "opened", true);
+                keyClick(Qt.Key_A);
+                keyClick(Qt.Key_Escape);
+                tryCompare(passwordPopup, "visible", false);
+                verify(manager.opened);
+                mouseClick(control("removeAccount-alice"));
+                const confirmation = findChild(manager, "removeAccountDialog");
+                tryCompare(confirmation, "opened", true);
+                mouseClick(confirmation.cancelButton);
+                compare(service.document.nodes[0].setup.users.length, 1);
+                compare(backend.requests.length, 0);
+            }
+            function test_long_list_keeps_actions_visible_and_limits_count() {
+                for (let index = 0; index < 32; index++) service.accountChange(0, "addUser", "learner" + index);
+                const manager = openManager();
+                findChild(manager.contentItem, "newAccountName").text = "extra";
+                verify(!findChild(manager.contentItem, "addAccount").enabled);
+                mouseClick(control("expandAccount-learner31"));
+                verify(control("accountName-learner31").visible);
+                verify(manager.height < window.height);
+                chooseSection(manager, 1);
+                compare(findChild(manager, "accountsScroll").contentItem.contentY, 0);
+            }
+            function test_small_window_and_group_empty_state() {
+                window.width = 360;
+                window.height = 520;
+                const manager = openManager(1);
+                verify(manager.width <= window.width - 16);
+                verify(manager.height <= window.height - 16);
+                const field = control("newAccountGroup");
+                verify(field.visible);
+                const position = field.mapToItem(window.contentItem, 0, 0);
+                verify(position.x >= 0 && position.x + field.width <= window.width);
+                verify(position.y >= 0 && position.y + field.height <= window.height);
+                if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/accounts-small-window.png");
+            }
             function test_password_is_masked_blank_and_cleared_on_node_change() {
-                mouseClick(findChild(panel, "mainOpenPassword"));
+                openManager();
+                mouseClick(control("mainOpenPassword"));
                 const popup = findChild(panel, "mainPasswordDialog");
                 tryCompare(popup, "opened", true);
                 const input = findChild(panel, "mainAccountPassword");
@@ -177,11 +283,11 @@ Item {
                 compare(backend.requests.length, 0);
             }
             function test_user_like_add_rename_membership_delete() {
-                const toggle = control("extraAccountsToggle");
-                if (!toggle.checked) mouseClick(toggle);
+                const manager = openManager(1);
                 typeName("newAccountGroup", "team");
                 mouseClick(control("addAccountGroup"));
                 compare(service.document.nodes[0].setup.groups[0].name, "team");
+                chooseSection(manager, 0);
                 typeName("newAccountName", "alice");
                 mouseClick(control("addAccount"));
                 compare(service.document.nodes[0].setup.users[0].name, "alice");
@@ -189,24 +295,37 @@ Item {
                 keyClick(Qt.Key_Return);
                 compare(service.document.nodes[0].setup.users[0].name, "ally");
                 compare(service.document.nodes[0].setup.users[0].uid, 3001);
+                chooseSection(manager, 1);
                 typeName("accountGroupName-team", "staff");
                 keyClick(Qt.Key_Return);
                 compare(service.document.nodes[0].setup.groups[0].name, "staff");
+                chooseSection(manager, 0);
                 mouseClick(control("accountMembership-ally-staff"));
                 compare(service.document.nodes[0].setup.users[0].groups[0], "staff");
+                chooseSection(manager, 1);
                 mouseClick(control("removeAccountGroup-staff"));
+                const confirmation = findChild(manager, "removeAccountDialog");
+                tryCompare(confirmation, "opened", true);
+                mouseClick(confirmation.actionButton);
                 compare(service.document.nodes[0].setup.groups.length, 1);
-                if (!service.localError) service.accountChange(0, "removeGroup", "staff");
                 verify(service.localError.length > 0);
+                notices.errorToast.dismiss(false);
+                chooseSection(manager, 0);
                 mouseClick(control("accountMembership-ally-staff"));
+                chooseSection(manager, 1);
                 mouseClick(control("removeAccountGroup-staff"));
-                if (service.document.nodes[0].setup.groups.length) service.accountChange(0, "removeGroup", "staff");
+                tryCompare(confirmation, "opened", true);
+                mouseClick(confirmation.actionButton);
                 compare(service.document.nodes[0].setup.groups.length, 0);
+                chooseSection(manager, 0);
                 mouseClick(control("removeAccount-ally"));
+                tryCompare(confirmation, "opened", true);
+                mouseClick(confirmation.actionButton);
                 compare(service.document.nodes[0].setup.users.length, 0);
                 compare(service.document.nodes[0].user.name, "student");
             }
             function test_password_popup_submit_and_cancel() {
+                const manager = openManager();
                 mouseClick(control("mainOpenPassword"));
                 const popup = findChild(panel, "mainPasswordDialog");
                 tryCompare(popup, "opened", true);
@@ -221,10 +340,12 @@ Item {
                 keyClick(Qt.Key_B);
                 keyClick(Qt.Key_Escape);
                 tryCompare(popup, "visible", false);
+                verify(manager.opened);
                 compare(findChild(panel, "mainAccountPassword").text, "");
                 compare(backend.requests.length, 1);
             }
             function test_password_uses_backend_utf8_byte_limit() {
+                openManager();
                 mouseClick(control("mainOpenPassword"));
                 const popup = findChild(panel, "mainPasswordDialog");
                 tryCompare(popup, "opened", true);
@@ -245,12 +366,19 @@ Item {
                 service.accountChange(0, "addUser", "alice");
                 service.accountChange(0, "groups", "alice", ["research"]);
                 service.definitionDirty = false;
-                const toggle = control("extraAccountsToggle");
-                if (!toggle.checked) mouseClick(toggle);
+                wait(30);
+                if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/accounts-summary-" + data.tag + ".png");
+                const manager = openManager();
+                mouseClick(control("expandAccount-alice"));
                 scroll.contentItem.contentY = 0;
                 wait(70);
                 if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/accounts-" + data.tag + ".png");
                 verify(panel.width <= scroll.availableWidth + 1);
+                verify(manager.width <= window.width);
+                verify(manager.height <= window.height);
+                chooseSection(manager, 1);
+                if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/account-groups-" + data.tag + ".png");
+                chooseSection(manager, 0);
                 mouseClick(control("mainOpenPassword"));
                 const popup = findChild(panel, "mainPasswordDialog");
                 tryCompare(popup, "opened", true);
@@ -258,6 +386,40 @@ Item {
                 if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/account-password-" + data.tag + ".png");
                 verify(popup.width <= window.width);
                 keyClick(Qt.Key_Escape);
+            }
+            function test_main_password_belongs_to_manager() {
+                verify(findChild(panel, "mainAccountSudo").visible);
+                verify(!findChild(panel, "mainOpenPassword").visible);
+                const manager = openManager();
+                verify(findChild(manager.contentItem, "mainOpenPassword") !== null);
+                compare(findChild(manager.contentItem, "mainAccountName").text, "student");
+                verify(!service.dirty);
+                mouseClick(control("mainOpenPassword"));
+                const popup = findChild(panel, "mainPasswordDialog");
+                tryCompare(popup, "opened", true);
+                findChild(panel, "mainAccountPassword").text = "private-fixture";
+                manager.close();
+                tryCompare(popup, "visible", false);
+                compare(findChild(panel, "mainAccountPassword").text, "");
+                compare(backend.requests.length, 0);
+            }
+            function test_main_password_cleared_on_group_tab() {
+                const manager = openManager();
+                mouseClick(control("mainOpenPassword"));
+                const popup = findChild(panel, "mainPasswordDialog");
+                tryCompare(popup, "opened", true);
+                findChild(panel, "mainAccountPassword").text = "private-fixture";
+                manager.section = 1;
+                tryCompare(popup, "visible", false);
+                compare(findChild(panel, "mainAccountPassword").text, "");
+            }
+            function test_main_lock_password_uses_existing_request() {
+                openManager();
+                mouseClick(control("mainLockPassword"));
+                compare(backend.requests.length, 1);
+                const request = JSON.parse(backend.requests[0].input);
+                compare(request.action, "lock");
+                compare(request.account, "student");
             }
         }
     }

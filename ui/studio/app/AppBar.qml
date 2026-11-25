@@ -13,6 +13,7 @@ ToolBar {
     property int currentIndex: 0
     property bool demo: false
     property bool windowMaximized: false
+    property bool updateAvailable: false
 
     signal closeRequested
     signal navigationRequested(int index)
@@ -136,11 +137,22 @@ ToolBar {
                 textColor: bar.connected ? Studio.Theme.textOnSuccessContainer : Studio.Theme.textOnErrorContainer
             }
             Studio.StudioIconButton {
-                description: "Cài đặt"
+                description: bar.updateAvailable ? qsTr("Cài đặt · Có bản cập nhật") : qsTr("Cài đặt")
                 iconName: "settings"
                 objectName: "openSettingsButton"
 
                 onClicked: bar.settingsRequested()
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 5
+                    width: 9; height: 9; radius: 5
+                    color: Studio.Theme.primary
+                    border.color: Studio.Theme.surface
+                    border.width: 2
+                    visible: bar.updateAvailable
+                    Accessible.ignored: true
+                }
             }
             Studio.StudioIconButton {
                 description: "Làm mới"

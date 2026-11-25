@@ -54,7 +54,10 @@ class DifficultyChecks(unittest.TestCase):
     def test_draft_export_import_preserves_difficulty(self):
         with tempfile.TemporaryDirectory(prefix="cyberlab-difficulty-") as directory:
             root = Path(directory)
-            api = Authoring(root / "drafts.sqlite3", root / "catalog", RuntimePolicy(frozenset({UBUNTU_IMAGE})))
+            catalog = root / "catalog"
+            catalog.mkdir()
+            api = Authoring(root / "drafts.sqlite3", catalog,
+                            RuntimePolicy(frozenset({UBUNTU_IMAGE}), workstation_images=frozenset({UBUNTU_IMAGE})))
             for difficulty in (None, "easy", "medium", "hard"):
                 with self.subTest(difficulty=difficulty):
                     document = definition()
@@ -63,8 +66,12 @@ class DifficultyChecks(unittest.TestCase):
                         document["metadata"]["difficulty"] = difficulty
                     snapshot = api.store.clone("fixture", "Fixture", json.dumps(document), (), 1000)
                     package = api.export_draft_package(snapshot["id"], snapshot["revision"], 1000)
-                    imported = api.import_lab_package(package, "copy", "Copy", 1000)
-                    metadata = json.loads(imported["definition"])["metadata"]
+                    lab_id = "copy-" + (difficulty or "unset")
+                    before = api.list(1000)
+                    imported = api.import_lab_package(package, lab_id, "Copy", 1000)
+                    self.assertEqual(imported, {"installed": True, "lab_id": lab_id, "edit_protected": False})
+                    metadata = json.loads((catalog / lab_id / "lab.yaml").read_text())["metadata"]
+                    self.assertEqual(api.list(1000), before)
                     self.assertEqual(metadata.get("difficulty"), difficulty)
                     if difficulty is None:
                         self.assertNotIn("difficulty", metadata)

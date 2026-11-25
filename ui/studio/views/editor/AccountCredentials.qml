@@ -10,6 +10,7 @@ ColumnLayout {
     required property string accountName
     required property string contextKey
     property bool mainAccount: false
+    property bool showSudo: true
     property string sudoMode: "disabled"
     property string passwordState: "!"
     readonly property bool passwordReady: !editor.dirty && !editor.accountPasswordPending && !editor.backend.busy
@@ -52,33 +53,40 @@ ColumnLayout {
         return bytes;
     }
 
-    Label { text: qsTr("Quyền sudo"); color: Studio.Theme.textOnSurface }
+    Label { visible: credentials.showSudo; text: qsTr("Quyền sudo"); color: Studio.Theme.textOnSurface }
     Studio.StudioComboBox {
+        visible: credentials.showSudo
         Layout.fillWidth: true
-        objectName: credentials.mainAccount ? "mainAccountSudo" : "extraAccountSudo-" + credentials.accountName
+        objectName: credentials.showSudo ? (credentials.mainAccount ? "mainAccountSudo" : "extraAccountSudo-" + credentials.accountName) : ""
         model: [qsTr("Không cho phép"), qsTr("Yêu cầu mật khẩu"), qsTr("Không cần mật khẩu")]
         currentIndex: ["disabled", "password", "passwordless"].indexOf(credentials.sudoMode)
         onActivated: credentials.editor.accountChange(credentials.nodeIndex, "sudo", credentials.accountName, ["disabled", "password", "passwordless"][currentIndex])
     }
     Label {
         Layout.fillWidth: true
-        text: credentials.passwordState === "!" ? qsTr("Mật khẩu đang khóa") : credentials.passwordState ? qsTr("Đã đặt mật khẩu") : qsTr("Giữ mật khẩu mặc định của môi trường")
+        text: credentials.passwordState === "!" ? qsTr("Mật khẩu đang khóa") : credentials.passwordState ? qsTr("Đã đặt mật khẩu") : qsTr("Mật khẩu mặc định")
         color: Studio.Theme.textOnSurfaceVariant
+        font.pixelSize: Studio.Theme.bodySmall
         wrapMode: Text.WordWrap
     }
-    RowLayout {
+    GridLayout {
         Layout.fillWidth: true
+        columns: credentials.width >= 340 ? 2 : 1
+        columnSpacing: Studio.Theme.space8
+        rowSpacing: 0
         Studio.StudioButton {
-            Layout.fillWidth: true
+            Layout.fillWidth: false
+            iconName: "lock"
             text: qsTr("Đặt mật khẩu")
             objectName: credentials.mainAccount ? "mainOpenPassword" : "openPassword-" + credentials.accountName
             enabled: credentials.passwordReady
             onClicked: passwordDialog.open()
         }
         Studio.StudioButton {
-            Layout.fillWidth: true
+            Layout.fillWidth: false
             text: qsTr("Khóa mật khẩu")
-            outlined: true
+            objectName: credentials.mainAccount ? "mainLockPassword" : "lockPassword-" + credentials.accountName
+            flat: true
             enabled: credentials.passwordReady && credentials.passwordState !== "!"
             onClicked: credentials.applyPassword("lock")
         }

@@ -69,9 +69,14 @@ class StartupAuthoringChecks(unittest.TestCase):
         definition, assets, _ = read_package(archive)
         self.assertEqual(json.loads(definition), json.loads(self.package["definition"]))
         self.assertEqual(dict(assets), {path: text.encode() for path, text in self.package["assets"].items()})
+        before = self.api.list(self.uid)
         imported = self.api.import_lab_package(archive, "imported", "Imported", self.uid)
-        report = self.api.validate(imported["id"], imported["revision"], self.uid)
-        self.assertTrue(report["valid"], report)
+        self.assertEqual(imported, {"installed": True, "lab_id": "imported", "edit_protected": False})
+        lab = load_lab(self.catalog / "imported" / "lab.yaml")
+        self.assertEqual(lab.nodes[0].command, ("/bin/sh", "start.sh"))
+        seed = {entry.path: entry.data for entry in lab.nodes[0].seed}
+        self.assertEqual(seed["start.sh"], self.package["assets"]["assets/startup/client/start.sh"].encode())
+        self.assertEqual(self.api.list(self.uid), before)
 
     def test_missing_referenced_script_blocks_publication(self):
         path = "assets/startup/client/start.sh"

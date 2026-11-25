@@ -88,7 +88,7 @@ class QuarantineChecks(unittest.TestCase):
     def test_api_does_not_advertise_native_or_accept_context_calls(self):
         engine = SimpleNamespace(runtime=SimpleNamespace(name='fixture', native=NativeDisplays(None)),
                                  practice_store=None, policy=SimpleNamespace(workstation_images=[]))
-        server = SimpleNamespace(engine=engine, authoring=None)
+        server = Server(None, engine, {os.getuid()})
         self.assertNotIn('native-x11', Server.dispatch(server, 'GetCapabilities', [], os.getuid()))
         for operation in ('PrepareDesktopContext', 'ReleaseDesktopContext', 'StartLabWithDesktop',
                           'ResumeSessionWithDesktop', 'ResetSessionWithDesktop', 'ReconnectNativeDesktop'):
@@ -105,7 +105,7 @@ class QuarantineChecks(unittest.TestCase):
             engine = SimpleNamespace(runtime=runtime, practice_store=None,
                                      policy=SimpleNamespace(allowed_images=allowed_images,
                                                             workstation_images=workstation_images))
-            server = SimpleNamespace(engine=engine, authoring=None)
+            server = Server(None, engine, {os.getuid()})
             capabilities = Server.dispatch(server, 'GetCapabilities', [], os.getuid())
             self.assertEqual('machine-setup-v1' in capabilities, expected)
 

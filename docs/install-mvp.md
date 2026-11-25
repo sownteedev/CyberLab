@@ -3,7 +3,10 @@
 CyberLab can be developed on a physical Linux machine or in a VM. The
 architecture remains Studio/CLI -> System D-Bus -> cyberlabd -> Engine -> Docker.
 Do not copy the old machine's venv, `/usr/lib/cyberlab`, service files, UID or
-home paths to a new host. Clone the source and install for its actual account.
+home paths to a new host. Install for its actual account; a development clone
+is optional. The link bootstrap and system catalog/update workflow are described
+in [System Install and Update](system-install-update.md). Historical verification
+in this document does not certify the new bootstrap or private-catalog workflow.
 
 Ubuntu is the primary target. Keep the existing adapters for other distributions
 as secondary paths; do not treat their presence as a promise of universal Linux
@@ -194,11 +197,11 @@ verification Lab/Session and installs no examples.
 | `/etc/cyberlab/daemon.toml` | Per-machine catalog, user/image allowlists and authoring configuration. |
 | `/etc/systemd/system/cyberlabd.service` and its drop-in | Privileged service and reviewed catalog-write policy. |
 | `/etc/dbus-1/system.d/org.ptit.CyberLab1.conf` | Shared System D-Bus policy. |
-| `/home/<user>/CyberLab-labs` | Persistent catalog, created empty only when absent. |
+| `/var/lib/cyberlab/labs` | New root-private catalog, initially empty. |
 | `/var/lib/cyberlab/authoring` | Private drafts and saved practice; never a build fixture. |
 
-New catalogs are root-owned with the desktop user's primary group and mode
-2775, so the bounded daemon and the selected user can both manage the library.
+New catalogs are root-owned with mode 0700; internal files use mode 0600.
+The desktop user manages the library through the daemon, not direct file access.
 Existing catalogs are preserved byte-for-byte, without chmod/chown of their
 contents. Their referenced images must still be separately allowed/preloaded;
 the initial allowlist is only `busybox:1.37.0`. Personal shortcuts are preserved
@@ -207,12 +210,11 @@ the installed app explicitly. Existing legacy VM launchers can reuse their
 already-installed AppImage for compatibility, but new installations never
 need or fetch one. Use `--require-native` on the Studio launcher to forbid that.
 
-The service exposes only the catalog in a private home-directory mount namespace
-(`ProtectHome=tmpfs` plus a bounded `BindPaths` entry). It does not chmod the
-user's home or expose other private home files. Existing catalog permissions
-that prevent bounded daemon writes are reported for administrator review, not
-silently changed. Publication uses the caller's actual primary group, not a
-guess that the numeric GID equals the UID.
+New service configuration keeps `ProtectHome=true` and only permits writes to
+the system catalog and authoring state. Existing home-catalog installations
+retain their bounded home mount configuration and permissions during update;
+they are not silently migrated. Legacy publication uses the caller's actual
+primary group, while publication to the new system catalog remains root-private.
 
 Docker HTTP requests have a finite 30-second timeout to accommodate slower VMs.
 Transport failures, including socket errors and read timeouts, are reported as

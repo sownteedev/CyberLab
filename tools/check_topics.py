@@ -95,9 +95,15 @@ class TopicChecks(unittest.TestCase):
         fields = lab_fields(lab)
         self.assertEqual(fields["tags"].value, ["linux", "networking"])
         self.assertEqual(fields["tag_labels"].value["linux"], "Linux")
+        self.api.catalog.mkdir()
+        self.api.policy = RuntimePolicy(frozenset({UBUNTU_IMAGE}), workstation_images=frozenset({UBUNTU_IMAGE}))
         package = self.api.export_draft_package(snapshot["id"], snapshot["revision"], 1000)
+        before = self.api.list(1000)
         imported = self.api.import_lab_package(package, "imported", "Imported", 1000)
-        self.assertEqual(json.loads(imported["definition"])["metadata"]["tags"], ["linux", "networking"])
+        self.assertEqual(imported, {"installed": True, "lab_id": "imported", "edit_protected": False})
+        metadata = json.loads((self.api.catalog / "imported" / "lab.yaml").read_text())["metadata"]
+        self.assertEqual(metadata["tags"], ["linux", "networking"])
+        self.assertEqual(self.api.list(1000), before)
 
 
 if __name__ == "__main__":

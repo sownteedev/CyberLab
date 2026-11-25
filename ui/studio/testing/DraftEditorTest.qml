@@ -361,6 +361,10 @@ Item {
             }
             function test_machine_redesign_layout(data) {
                 openUbuntuMachine();
+                checks.service.policy = Object.assign({}, checks.service.policy, {
+                    machine_setup: true, machine_setup_version: 1,
+                    image_profiles: checks.service.policy.image_profiles.map(profile => Object.assign({}, profile, {machine_setup: true}))
+                });
                 window.width = data.width;
                 Studio.Theme.themeMode = data.theme;
                 const document = Model.clone(checks.service.document);
@@ -372,6 +376,15 @@ Item {
                     "nodeNetworkToggle-lan", "nodeNetworkAddress-lan", "nodeNetworkToggle-guest"])
                     contained(control(name), draftEditor);
                 verify(control("nodeNetworkList") !== null);
+                verify(control("extraAccountsToggle").visible);
+                const terminalPosition = control("basicTerminalCount").mapToItem(control("nodeConfigurationPanel"), 0, 0);
+                const accountPosition = control("basicNodeUsername").mapToItem(control("nodeConfigurationPanel"), 0, 0);
+                if (data.width >= 1000) verify(Math.abs(terminalPosition.y - accountPosition.y) < 2, "Terminal aligns with the account row, not its vertical center");
+                if (data.width >= 1000) {
+                    const managementPosition = control("extraAccountsToggle").mapToItem(control("nodeConfigurationPanel"), 0, 0);
+                    verify(managementPosition.x >= terminalPosition.x, "Account management belongs to the right column");
+                    verify(managementPosition.y > terminalPosition.y, "Management is below Terminal");
+                }
                 const first = control("nodeNetworkRow-lan");
                 const second = control("nodeNetworkRow-backend");
                 verify(second.y >= first.y + first.height, "Networks are a single compact list, not stretched cards");

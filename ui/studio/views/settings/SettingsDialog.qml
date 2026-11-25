@@ -11,6 +11,9 @@ Studio.StudioDialog {
     property int sectionIndex: 0
     required property var terminals
     property var guiPreferences: null
+    property var updater: null
+    readonly property var sections: [{ label: qsTr("Giao diện"), icon: "palette" }, { label: qsTr("Terminal"), icon: "terminal" }, { label: qsTr("Máy lab"), icon: "desktop_windows" }, { label: qsTr("Ứng dụng"), icon: "apps" }].concat(dialog.updater ? [{label: qsTr("Cập nhật"), icon: "download"}] : [])
+    signal updateRequested()
 
     function focusSection() {
         if (settingsContent.item)
@@ -41,12 +44,23 @@ Studio.StudioDialog {
 
         Studio.StudioSegmentedTabs {
             Layout.fillWidth: true
+            visible: dialog.width >= 600
             currentIndex: dialog.sectionIndex
-            entries: [{ label: qsTr("Giao diện"), icon: "palette" }, { label: qsTr("Terminal"), icon: "terminal" }, { label: qsTr("Máy lab"), icon: "desktop_windows" }, { label: qsTr("Ứng dụng"), icon: "apps" }]
+            entries: dialog.sections
             itemPrefix: "settingsSection-"
             objectName: "settingsSections"
 
             onSelected: index => dialog.sectionIndex = index
+        }
+        Studio.StudioComboBox {
+            Layout.fillWidth: true
+            visible: dialog.width < 600
+            objectName: "settingsSectionPicker"
+            Accessible.name: qsTr("Mục cài đặt")
+            model: dialog.sections
+            textRole: "label"
+            currentIndex: dialog.sectionIndex
+            onActivated: dialog.showSection(currentIndex)
         }
         ScrollView {
             id: settingsScroll
@@ -61,7 +75,7 @@ Studio.StudioDialog {
                 id: settingsContent
 
                 height: item ? item.implicitHeight : 0
-                sourceComponent: dialog.sectionIndex === 0 ? appearancePage : dialog.sectionIndex === 1 ? terminalPage : dialog.sectionIndex === 2 ? labAccountPage : guiPage
+                sourceComponent: dialog.sectionIndex === 0 ? appearancePage : dialog.sectionIndex === 1 ? terminalPage : dialog.sectionIndex === 2 ? labAccountPage : dialog.sectionIndex === 4 && dialog.updater ? updatePage : guiPage
                 width: settingsScroll.availableWidth
             }
         }
@@ -81,7 +95,7 @@ Studio.StudioDialog {
                 Layout.fillWidth: true
                 color: Studio.Theme.textOnSurfaceVariant
                 font.pixelSize: Studio.Theme.bodySmall
-                text: dialog.sectionIndex === 2 ? qsTr("Username chỉ áp dụng sau khi nhấn Lưu.") : qsTr("Tự lưu thay đổi. Không ảnh hưởng bài lab.")
+                text: dialog.sectionIndex === 4 ? qsTr("Chỉ cập nhật khi bạn xác nhận.") : dialog.sectionIndex === 2 ? qsTr("Username chỉ áp dụng sau khi nhấn Lưu.") : qsTr("Tự lưu thay đổi. Không ảnh hưởng bài lab.")
                 wrapMode: Text.WordWrap
             }
             StudioButton {
@@ -103,6 +117,10 @@ Studio.StudioDialog {
         focusSection();
     }
 
+    Component {
+        id: updatePage
+        UpdateSettings { updater: dialog.updater; onUpdateRequested: dialog.updateRequested() }
+    }
     Component {
         id: guiPage
 

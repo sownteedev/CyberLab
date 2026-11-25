@@ -35,9 +35,9 @@ QtObject {
         const cmd = nativePackage ? "import-lab" : "import-labtainer";
         const performImport = () => api.request([cmd, path], (result, error) => {
             service.importing = false;
-            if (!error && result && result.installed === true && result.lab_id && result.edit_protected === true) {
+            if (!error && result && result.installed === true && result.lab_id) {
                 service.libraryReloadRequested();
-                api.notify("Đã nhập bài có khóa chỉnh sửa vào thư viện. Nhập mật khẩu khi cần chỉnh sửa.", false);
+                api.notify(result.edit_protected === true ? "Đã nhập bài có khóa chỉnh sửa vào thư viện. Nhập mật khẩu khi cần chỉnh sửa." : "Đã nhập bài lab vào thư viện.", false);
                 return;
             }
             if (error || !result || !result.id)

@@ -27,6 +27,7 @@ PYTHON = Path(sys.executable)
 APP = Path("/usr/lib/cyberlab")
 CONFIG = Path("/etc/cyberlab")
 STATE = Path("/var/lib/cyberlab")
+BACKUP_ROOT = Path("/var/tmp")
 UNIT = Path("/etc/systemd/system/cyberlabd.service")
 DROPIN = Path("/etc/systemd/system/cyberlabd.service.d")
 BUS_POLICY = Path("/etc/dbus-1/system.d/org.ptit.CyberLab1.conf")
@@ -53,15 +54,19 @@ def tool(name):
     return module
 
 
-def run(*arguments, account=None, timeout=300, check=True):
+def run(*arguments, account=None, timeout=300, check=True, build_home=None):
     environment = ENVIRONMENT.copy()
     command = [str(argument) for argument in arguments]
     if account is not None:
         environment.update(HOME=account.pw_dir, USER=account.pw_name, LOGNAME=account.pw_name)
-        if os.geteuid() == 0:
-            command = [shutil.which("runuser", path=SEARCH_PATH), "-u", account.pw_name, "--", *command]
-        elif os.geteuid() != account.pw_uid:
+        if os.geteuid() not in (0, account.pw_uid):
             raise ValueError("Cannot verify a different Unix user without administrator access")
+    if build_home is not None:
+        environment.update(HOME=str(build_home), XDG_CACHE_HOME=str(build_home / "cache"),
+                           TMPDIR=str(build_home), PIP_CACHE_DIR=str(build_home / "cache"))
+    if account is not None and os.geteuid() == 0:
+        command = [shutil.which("runuser", path=SEARCH_PATH), "-u", account.pw_name, "--",
+                   "/usr/bin/env", "-i", *(f"{key}={value}" for key, value in environment.items()), *command]
     result = subprocess.run(command, cwd="/", env=environment, text=True,
                             capture_output=True, timeout=timeout)
     if check and result.returncode:
@@ -187,9 +192,6 @@ def preflight(account, backend_only=False, allow_stopped=False):
     if not Path("/run/dbus/system_bus_socket").is_socket():
         raise ValueError("The host System D-Bus is not available")
     probe_terminals(account)
-    catalog = Path(account.pw_dir) / "CyberLab-labs"
-    if os.path.lexists(catalog) and not backend_only:
-        check_catalog_permissions(account, catalog)
     if Path("/var/run/docker.sock").exists():
         run(PYTHON, "-I", "-c", "import os; assert not os.access('/var/run/docker.sock', os.W_OK), 'Desktop user must not have Docker socket access'", account=account)
     if not backend_only:
@@ -233,6 +235,8 @@ def read_regular(path, limit):
 
 
 def build_wheels(account, stage):
+    if shutil.disk_usage("/var/tmp").free < 1536 * 1024 * 1024:
+        raise ValueError("Not enough temporary disk space to build CyberLab (1.5 GiB required)")
     build = Path(tempfile.mkdtemp(prefix="cyberlab-source-", dir="/var/tmp"))
     try:
         source = build / "source"
@@ -253,9 +257,9 @@ def build_wheels(account, stage):
             os.chown(entry, account.pw_uid, account.pw_gid, follow_symlinks=False)
         build_python = build / "venv/bin/python"
         print("Building the app and downloading dependency wheels as the desktop user...", flush=True)
-        run(PYTHON, "-I", "-m", "venv", build / "venv", account=account)
+        run(PYTHON, "-I", "-m", "venv", build / "venv", account=account, build_home=build)
         run(build_python, "-I", "-m", "pip", "--isolated", "wheel", "--no-cache-dir",
-            "--only-binary=:all:", "--wheel-dir", build / "wheels", source, account=account, timeout=1200)
+            "--only-binary=:all:", "--wheel-dir", build / "wheels", source, account=account, timeout=1200, build_home=build)
         wheels = stage / "wheels"
         wheels.mkdir()
         manifest = {}
@@ -293,11 +297,18 @@ def native_version(account):
         raise ValueError(f"Quickshell >=0.3.1 is required; native runtime reports: {version_text}")
     return executable, version_text
 
-def probe_runtime(account):
+def probe_runtime(account, studio_path=None):
     executable, version_text = native_version(account)
     with tempfile.TemporaryDirectory(prefix="cyberlab-qml-probe-") as directory:
         root = Path(directory)
-        (root / "shell.qml").write_bytes(read_regular(ROOT / "tools/install/probe.qml", 16384))
+        probe = read_regular(ROOT / "tools/install/probe.qml", 16384).decode()
+        if studio_path is not None:
+            url = (studio_path / "shell.qml").as_uri()
+            probe = probe.replace('console.warn("CYBERLAB_NATIVE_QML_OK");',
+                                  f'var studio = Qt.createComponent({json.dumps(url)}, Component.PreferSynchronous);\n'
+                                  'if (studio.status !== Component.Ready) { console.error(studio.errorString()); Qt.quit(); return; }\n'
+                                  'console.warn("CYBERLAB_NATIVE_QML_OK");')
+        (root / "shell.qml").write_text(probe)
         (root / "runtime").mkdir(mode=0o700)
         for entry in (root, root / "shell.qml", root / "runtime"):
             if os.geteuid() == 0:
@@ -311,7 +322,8 @@ def probe_runtime(account):
         }
         command = [str(executable), "--path", directory]
         if os.geteuid() == 0:
-            command = [shutil.which("runuser", path=SEARCH_PATH), "-u", account.pw_name, "--", *command]
+            command = [shutil.which("runuser", path=SEARCH_PATH), "-u", account.pw_name, "--",
+                       "/usr/bin/env", "-i", *(f"{key}={value}" for key, value in environment.items()), *command]
         process = subprocess.Popen(command, env=environment, cwd=directory, start_new_session=True,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
@@ -345,13 +357,13 @@ def install_file(destination, content, mode=0o644):
 
 
 def configuration(account):
-    catalog = Path(account.pw_dir) / "CyberLab-labs"
+    catalog = STATE / "labs"
     config = (f"catalog = {json.dumps(str(catalog), ensure_ascii=False)}\n"
               f"allowed_uids = [{account.pw_uid}]\n"
               f"allowed_images = [{json.dumps(IMAGE)}]\nauthoring = true\n")
     escaped = json.dumps(str(catalog).replace("%", "%%"), ensure_ascii=False)
-    dropin = (f"[Service]\nProtectHome=tmpfs\nBindPaths={escaped}\nReadWritePaths={escaped} {STATE}/authoring\n"
-              f"SupplementaryGroups={account.pw_gid}\nUMask=0077\n")
+    dropin = (f"[Service]\nProtectHome=true\nReadWritePaths={escaped} {STATE}/authoring\n"
+              "UMask=0077\n")
     return catalog, config.encode(), dropin.encode()
 
 
@@ -369,9 +381,11 @@ def prepare_catalog(account, catalog):
         check_catalog_permissions(account, catalog)
         print(f"Preserving existing catalog, contents and permissions: {catalog}")
     else:
-        catalog.mkdir(mode=0o775)
-        os.chown(catalog, 0, account.pw_gid)
-        catalog.chmod(0o2775)
+        trusted_parents(catalog)
+        catalog.parent.mkdir(mode=0o700, exist_ok=True)
+        catalog.mkdir(mode=0o700)
+        os.chown(catalog, 0, 0)
+        catalog.chmod(0o700)
 
 
 def docker_preflight(account):
@@ -410,15 +424,77 @@ def stage_configuration(account, stage):
                  "daemon/bin/cyberlab", "daemon/bin/cyberlab-studio", "ui/cyberlab-studio.desktop"):
         (destination / Path(name).name).write_bytes(read_regular(ROOT / name, 65536))
 
+def source_identity(account):
+    marker = ROOT / ".cyberlab-source.json"
+    if marker.exists():
+        data = json.loads(read_regular(marker, 4096))
+        if data.get("repository") != "sownteedev/CyberLab" or not re.fullmatch(r"[0-9a-f]{40}", data.get("commit", "")):
+            raise ValueError("Invalid source commit metadata")
+        return {"commit": data["commit"], "source": "github-snapshot", "branch": "master"}
+    if shutil.which("git", path=SEARCH_PATH) and (ROOT / ".git").exists():
+        status = run("git", "-C", ROOT, "status", "--porcelain", account=account, check=False)
+        revision = run("git", "-C", ROOT, "rev-parse", "HEAD", account=account, check=False)
+        if status.returncode == revision.returncode == 0 and not status.stdout.strip() and re.fullmatch(r"[0-9a-f]{40}", revision.stdout.strip()):
+            return {"commit": revision.stdout.strip(), "source": "clean-checkout"}
+    return {"commit": None, "source": "local-unverified"}
+
+
+def atomic_json(destination, document):
+    if destination.is_symlink():
+        raise ValueError("Metadata must not be a symlink")
+    descriptor, temporary = tempfile.mkstemp(prefix=".receipt-", dir=destination.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(document, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def record_installation(account, stage, wheel):
+    print("CYBERLAB_UPDATE_PHASE:verify", flush=True)
+    import tomllib
+    studio = Path(run(APP / "venv/bin/python", "-I", "-c",
+                      "from importlib.resources import files; print(files('cyberlab_studio').joinpath('studio'))").stdout.strip())
+    runtime = probe_runtime(account, studio_path=studio)
+    config = tomllib.loads((CONFIG / "daemon.toml").read_text())
     receipt = {"result": "passed", "installed_at": datetime.now(timezone.utc).isoformat(),
                "wheel": wheel.name, "sha256": sha256(read_regular(wheel, 16 * 1024 * 1024)).hexdigest(),
-               "quickshell": json.loads((stage / "native-runtime.json").read_text()),
+               "package_version": wheel.name.split("-")[1],
+               "quickshell": runtime,
                "user": account.pw_name, "uid": account.pw_uid,
-               "catalog": str(Path(account.pw_dir) / "CyberLab-labs"),
+               "catalog": config["catalog"],
                "image": IMAGE, "verification": verify_daemon(account), "staging": str(stage)}
-    (stage / "verification.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    install_file(APP / "installation.json", json.dumps(receipt, indent=2).encode() + b"\n")
+    receipt.update(source_identity(account))
+    atomic_json(stage / "installation-verification.json", receipt)
+    atomic_json(APP / "installation.json", receipt)
+
+
+def retain_backup(stage):
+    pointer = APP / "managed-backup.json"
+    previous = None
+    if pointer.exists():
+        previous = json.loads(read_regular(pointer, 4096)).get("path")
+    atomic_json(stage / "managed-backup.json", {"managed_by": "cyberlab-update-v1", "result": "passed"})
+    atomic_json(pointer, {"path": str(stage)})
+    if not isinstance(previous, str):
+        return
+    old = Path(previous)
+    if old == stage or old.parent != BACKUP_ROOT or not old.name.startswith("cyberlab-app-install-") or old.is_symlink() or not old.is_dir():
+        return
+    if old.stat().st_uid != os.geteuid() or old.stat().st_mode & 0o077:
+        return
+    marker = old / "managed-backup.json"
+    if not marker.exists():
+        return
+    metadata = json.loads(read_regular(marker, 4096))
+    if metadata == {"managed_by": "cyberlab-update-v1", "result": "passed"}:
+        shutil.rmtree(old)
 
 def dnf_transaction_records(manifest):
     document = json.loads(read_regular(manifest, 8 * 1024 * 1024))
@@ -452,6 +528,10 @@ def dnf_transaction_records(manifest):
 
 
 def main():
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt("Installation interrupted")
+
+    signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user", required=True)
     parser.add_argument("operation", choices=("account", "check", "native-version", "dnf-plan", "stage", "prepare", "verify", "update"))
@@ -460,6 +540,8 @@ def main():
     parser.add_argument("--stage", type=Path)
     parser.add_argument("--wheel", type=Path)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--lock-fd", type=int)
+    parser.add_argument("--offline", action="store_true")
     arguments = parser.parse_args()
     account = account_for(arguments.user)
     if arguments.operation == "dnf-plan":
@@ -501,7 +583,14 @@ def main():
         if wheel is None or wheel.parent != stage or wheel.is_symlink():
             raise ValueError("Expected a validated wheel in the private staging directory")
         if arguments.operation == "update":
-            tool("upgrade_runtime").upgrade(wheel, account.pw_uid, stage, repair_service_policy=True)
+            tool("upgrade_runtime").upgrade(
+                wheel, account.pw_uid, stage, repair_service_policy=True,
+                wheelhouse=stage / "wheels", lock_fd=arguments.lock_fd, offline=arguments.offline,
+                verify_callback=lambda: record_installation(account, stage, wheel))
+            try:
+                retain_backup(stage)
+            except (OSError, ValueError) as error:
+                print(f"WARNING: update verified; old managed backup retained: {error}")
         else:
             record_installation(account, stage, wheel)
     shadow = Path(account.pw_dir) / ".local/share/applications/cyberlab-studio.desktop"

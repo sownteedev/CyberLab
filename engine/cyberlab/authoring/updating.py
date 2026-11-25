@@ -11,6 +11,11 @@ from cyberlab.lab.removal import remove_tree
 
 from .store import DraftConflict
 
+SYSTEM_CATALOG = Path("/var/lib/cyberlab/labs")
+
+def private_catalog(catalog):
+    return Path(catalog).resolve() == SYSTEM_CATALOG
+
 
 def exchange(parent, source, destination):
     library = ctypes.CDLL(None, use_errno=True)
@@ -21,10 +26,10 @@ def exchange(parent, source, destination):
         raise OSError(ctypes.get_errno(), "Cannot atomically exchange Lab directories")
 
 
-def sync_tree(directory, owner):
+def sync_tree(directory, owner, *, private=False):
     for entry in (*directory.rglob("*"), directory):
-        entry.chmod(0o755 if entry.is_dir() else 0o644)
-        if os.geteuid() == 0:
+        entry.chmod((0o700 if entry.is_dir() else 0o600) if private else (0o755 if entry.is_dir() else 0o644))
+        if not private and os.geteuid() == 0:
             os.chown(entry, owner.st_uid, owner.st_gid)
         descriptor = os.open(entry, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
@@ -52,7 +57,7 @@ def update_catalog(catalog, lab_id, snapshot, expected_digest, policy, *, record
         if replacement.metadata.id != lab_id:
             raise DraftConflict("Replacement Lab ID does not match the target")
         policy.validate(replacement)
-        sync_tree(stage, original)
+        sync_tree(stage, original, private=private_catalog(catalog))
         staged = stage.stat(follow_symlinks=False)
         current = os.stat(destination.name, dir_fd=parent, follow_symlinks=False)
         if ((current.st_dev, current.st_ino) != (original.st_dev, original.st_ino)

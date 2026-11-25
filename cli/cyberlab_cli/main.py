@@ -243,6 +243,13 @@ def main():
     parser.add_argument("--test-session-bus", action="store_true", help="Use the isolated test bus, not production")
     parser.add_argument('--edit-context', action='store_true', help='Read memory-only token and original input from JSON stdin')
     commands = parser.add_subparsers(dest="command", required=True)
+    updater = commands.add_parser("update", help="Cập nhật bản cài CyberLab từ master")
+    updater.add_argument("--check", action="store_true", help="Chỉ kiểm tra commit mới, không cài đặt")
+    updater.add_argument("--json", action="store_true", help="Trạng thái cập nhật dạng JSON")
+    updater.add_argument("--window", action="store_true", help="Mở cửa sổ cập nhật riêng cho Studio")
+    updater.add_argument("--commit", help=argparse.SUPPRESS)
+    updater.add_argument("--wait-pid", type=int, help=argparse.SUPPRESS)
+    updater.add_argument("--theme", default="system", choices=["system", "light", "dark"], help=argparse.SUPPRESS)
     from .edit_access import add_parser as add_edit_access_parser
 
     add_edit_access_parser(commands)
@@ -289,7 +296,7 @@ def main():
     exported_draft.add_argument("id", help="Draft ID")
     exported_draft.add_argument("output", type=Path, help="New .cyberlab package path")
     exported_draft.add_argument("--revision", type=int, required=True)
-    imported_lab = commands.add_parser("import-lab", help="Import an offline .cyberlab package into a private draft")
+    imported_lab = commands.add_parser("import-lab", help="Validate and install an offline .cyberlab package into the library without overwriting an existing Lab")
     imported_lab.add_argument("file", type=Path, help="Local .cyberlab package")
     imported_lab.add_argument("--as", dest="target_lab_id", help="Optional new Lab ID")
     imported_lab.add_argument("--title", help="Optional new Lab title")
@@ -349,6 +356,21 @@ def main():
     imported.add_argument("file", help="Regular file readable by the current host user, at most 256 KiB")
     imported.add_argument("--name", help="Safe display filename; a unique destination is generated, never overwritten")
     arguments = parser.parse_args()
+    if arguments.command == "update":
+        from .system_update import run_update
+        if arguments.window:
+            if arguments.check or not arguments.commit or not arguments.wait_pid:
+                parser.error("--window cần --commit và --wait-pid; không đi cùng --check")
+            from cyberlab_studio.update_window import launch_window
+            try:
+                print(json.dumps(launch_window(arguments.commit, arguments.wait_pid, arguments.theme)))
+                return 0
+            except (OSError, ValueError) as error:
+                print(json.dumps({"error": str(error)}, ensure_ascii=False))
+                return 1
+        if arguments.commit or arguments.wait_pid:
+            parser.error("--commit và --wait-pid chỉ dùng cùng --window")
+        return run_update(check=arguments.check, json_output=arguments.json)
     if arguments.command == "delete-lab" and not arguments.yes:
         parser.error("delete-lab requires --yes; the Lab and its assets will be permanently removed")
     if arguments.command == "discard" and not arguments.yes:

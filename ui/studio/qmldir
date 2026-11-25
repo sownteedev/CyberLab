@@ -12,6 +12,9 @@ Icon 1.0 components/Icon.qml
 AppearanceStore 1.0 services/AppearanceStore.qml
 AppearanceSettings 1.0 views/settings/AppearanceSettings.qml
 SettingsDialog 1.0 views/settings/SettingsDialog.qml
+UpdateSettings 1.0 views/settings/UpdateSettings.qml
+SystemUpdateService 1.0 services/SystemUpdateService.qml
+UpdateProgress 1.0 updater/UpdateProgress.qml
 TerminalSettings 1.0 views/settings/TerminalSettings.qml
 TerminalPreferences 1.0 services/TerminalPreferences.qml
 GuiPreferences 1.0 services/GuiPreferences.qml
@@ -112,6 +115,7 @@ NodePackagePicker 1.0 views/editor/NodePackagePicker.qml
 PackageSearchService 1.0 services/PackageSearchService.qml
 EditingDraftDialog 1.0 views/editor/EditingDraftDialog.qml
 NodeAccountEditor 1.0 views/editor/NodeAccountEditor.qml
+AccountManagerDialog 1.0 views/editor/AccountManagerDialog.qml
 AccountCredentials 1.0 views/editor/AccountCredentials.qml
 AccountNameField 1.0 views/editor/AccountNameField.qml
 NodeAdvancedEditor 1.0 views/editor/NodeAdvancedEditor.qml

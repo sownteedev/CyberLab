@@ -54,7 +54,7 @@ class ProtectionChecks(unittest.TestCase):
         self.publish(token)
         archive = self.call("ExportLabPackage", ["example"])
         definition, assets, manifest = read_package(archive)
-        self.assertEqual(manifest["format"], "cyberlab-lab/v2")
+        self.assertEqual(manifest["format"], "cyberlab-lab/v3")
         self.assertNotIn("secret passphrase", archive.decode("latin1"))
         catalog = self.root / "recipient"
         catalog.mkdir()
@@ -100,13 +100,13 @@ class ProtectionChecks(unittest.TestCase):
                 self.call(member, ["job"])
         self.api.software.apply.assert_not_called()
 
-    def test_unprotected_exchange_stays_v1_and_editable(self):
+    def test_unprotected_exchange_installs_v3_and_remains_editable(self):
         self.publish()
         archive = self.call("ExportLabPackage", ["example"])
-        self.assertEqual(read_package(archive)[2]["format"], "cyberlab-lab/v1")
+        self.assertEqual(read_package(archive)[2]["format"], "cyberlab-lab/v3")
         imported = json.loads(self.call("ImportLabPackage", [archive, "copy", "Copy"]))
-        self.assertIn("definition", imported)
-        self.assertFalse(imported["edit_protected"])
+        self.assertEqual(imported, {"installed": True, "lab_id": "copy", "edit_protected": False})
+        self.assertIn("definition", json.loads(self.call("EditLab", ["copy"])))
 
     def test_invalid_protected_import_does_not_leave_editable_draft(self):
         token = self.protect()

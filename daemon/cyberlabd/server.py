@@ -118,12 +118,9 @@ def labedit_fields(lab):
         ], ensure_ascii=True)),
         "assessment": Variant("s", json.dumps({
             "artifacts": [vars(item) for item in lab.assessment.artifacts],
-            "results": [{"id": item.id, "node": item.node, "path": item.path,
-                         "operator": item.operator, "description": item.description}
+            "results": [{"id": item.id, "node": item.node, "description": item.description}
                         for item in lab.assessment.results],
-            "goals": [{"id": item.id, "type": item.goal_type, "results": list(item.results),
-                       "mode": item.mode, "description": item.description,
-                       **({"expression": item.expression} if item.expression else {})}
+            "goals": [{"id": item.id, "description": item.description}
                       for item in lab.assessment.goals],
         }, ensure_ascii=True)),
         "quiz": Variant("s", json.dumps(public_questions(lab.quiz), ensure_ascii=True)),
@@ -150,7 +147,8 @@ class Server:
             result['gui_states'] = Variant('a{ss}', {node: status.get('state', '') for node, status in statuses.items()})
         return result
 
-    def __init__(self, bus, engine, allowed_uids, authoring=None):
+    def __init__(self, bus, engine, allowed_uids, authoring=None, maintenance_path=None):
+        self.maintenance_path = maintenance_path
         self.bus = bus
         self.engine = engine
         self.allowed_uids = allowed_uids
@@ -231,6 +229,23 @@ class Server:
         return uid
 
     def dispatch(self, member, body, uid, sender=None):
+        if self.maintenance_path is not None and member not in {"GetVersion", "GetCapabilities", "ListLabs", "ListSessions"}:
+            from .maintenance import request_lease
+
+            with request_lease(self.maintenance_path):
+                return self._dispatch(member, body, uid, sender)
+        return self._dispatch(member, body, uid, sender)
+
+    def maintenance_capabilities(self):
+        capabilities = ["maintenance-lock-v1"] if self.maintenance_path is not None else []
+        software = getattr(self.authoring, "software", None)
+        if software is not None:
+            with software.lock:
+                if software.workers or software.automatic or software.image_leases:
+                    capabilities.append("maintenance-busy")
+        return capabilities
+
+    def _dispatch(self, member, body, uid, sender=None):
         if member in {'PrepareDesktopContext', 'ReleaseDesktopContext', 'StartLabWithDesktop', 'ResumeSessionWithDesktop', 'ResetSessionWithDesktop', 'ReconnectNativeDesktop'}:
             native = getattr(self.engine.runtime, 'native', None)
             if native is None or not native.enabled:
@@ -274,7 +289,7 @@ class Server:
             native_available = getattr(getattr(self.engine.runtime, 'native', None), 'enabled', False)
             workstation_available = (UBUNTU_IMAGE in self.engine.policy.workstation_images
                                     and UBUNTU_IMAGE in self.engine.policy.allowed_images)
-            return (["machine-setup-v1"] if workstation_available else []) + (["native-x11"] if native_available else []) + [f"runtime:{self.engine.runtime.name}", "start", "stop", "reset", "delete-lab", "terminal", "terminal-plan", "terminal-slots", "static-networking", "seed-files", "node-environment", "documentation", "import-file", "workspace-files", "volatile-sessions", "parameters", "submission-review"] + (["seamless-apps"] if hasattr(self.engine.runtime, "desktop") and workstation_available else []) + (["session-persistence", "discard-checkpoint", "checkwork", "submissions", "submit-and-finish", "quiz", "lab-quiz"] if self.engine.practice_store is not None else []) + (["authoring", "lab-package-export", "lab-package-import", "labtainer-import", "labtainer-inspect"] if self.authoring is not None else [])
+            return self.maintenance_capabilities() + (["machine-setup-v1"] if workstation_available else []) + (["native-x11"] if native_available else []) + [f"runtime:{self.engine.runtime.name}", "start", "stop", "reset", "delete-lab", "terminal", "terminal-plan", "terminal-slots", "static-networking", "seed-files", "node-environment", "documentation", "import-file", "workspace-files", "volatile-sessions", "parameters", "submission-review"] + (["seamless-apps"] if hasattr(self.engine.runtime, "desktop") and workstation_available else []) + (["session-persistence", "discard-checkpoint", "checkwork", "submissions", "submit-and-finish", "quiz", "lab-quiz"] if self.engine.practice_store is not None else []) + (["authoring", "lab-package-export", "lab-package-import", "labtainer-import", "labtainer-inspect"] if self.authoring is not None else [])
         if member in {"GetLabDocumentation", "GetSessionDocumentation"}:
             result = self.engine.documentation(body[0], uid, session=member == "GetSessionDocumentation")
             return {key: Variant("s", value) for key, value in result.items()}

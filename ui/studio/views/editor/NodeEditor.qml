@@ -83,6 +83,8 @@ ColumnLayout {
             }
         }
         NodeAccountEditor {
+            managementHost: terminalSettings
+            Layout.alignment: Qt.AlignTop
             Layout.fillWidth: true
             Layout.preferredWidth: 240
             Layout.minimumWidth: 0
@@ -90,6 +92,8 @@ ColumnLayout {
             nodeIndex: panel.nodeIndex
         }
         ColumnLayout {
+            id: terminalSettings
+            Layout.alignment: Qt.AlignTop
             Layout.fillWidth: true
             Layout.preferredWidth: 240
             Layout.minimumWidth: 0

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../models/NodeDefaults.js" as Defaults
-import "../../models/AccountModel.js" as Accounts
 import "../.." as Studio
 
 ColumnLayout {
@@ -10,6 +9,7 @@ ColumnLayout {
 
     required property var editor
     required property int nodeIndex
+    property Item managementHost: null
     readonly property var node: editor.document && editor.document.nodes[nodeIndex] ? editor.document.nodes[nodeIndex] : null
     readonly property var profile: node ? Defaults.profile(editor.policy, node.image) : null
     readonly property bool editable: !!profile && !!profile.workstation && !!profile.custom_username
@@ -17,11 +17,6 @@ ColumnLayout {
     readonly property bool setupEnabled: editable && !!profile.machine_setup && !!editor.policy.machine_setup && editor.policy.machine_setup_version === 1
     readonly property var setup: node && node.setup ? node.setup : ({})
     readonly property string contextKey: (editor.draft ? editor.draft.id : "") + ":" + (node ? node.id : "")
-    onContextKeyChanged: {
-        extras.checked = false;
-        newAccount.clear();
-        newGroup.clear();
-    }
 
     spacing: Studio.Theme.space8
 
@@ -77,150 +72,65 @@ ColumnLayout {
         text: qsTr("Dùng 1–32 ký tự a–z, số, _ hoặc -, bắt đầu bằng chữ thường; không dùng tên hệ thống như root.")
         wrapMode: Text.WordWrap
     }
-    Studio.AccountCredentials {
+    Label {
+        visible: panel.setupEnabled
+        text: qsTr("Quyền sudo")
+        color: Studio.Theme.textOnSurface
+    }
+    Studio.StudioComboBox {
         Layout.fillWidth: true
         visible: panel.setupEnabled
+        objectName: "mainAccountSudo"
+        Accessible.name: qsTr("Quyền sudo của tài khoản chính")
+        model: [qsTr("Không cho phép"), qsTr("Yêu cầu mật khẩu"), qsTr("Không cần mật khẩu")]
+        currentIndex: ["disabled", "password", "passwordless"].indexOf(panel.setup.sudo || "passwordless")
+        onActivated: panel.editor.accountChange(panel.nodeIndex, "sudo", panel.node.user.name, ["disabled", "password", "passwordless"][currentIndex])
+    }
+    Rectangle {
+        parent: panel.managementHost || panel
+        Layout.fillWidth: true
+        implicitHeight: accountSummary.implicitHeight + Studio.Theme.space24
+        visible: panel.setupEnabled
+        radius: Studio.Theme.shapeMedium
+        color: Studio.Theme.surfaceContainer
+        RowLayout {
+            id: accountSummary
+            anchors.fill: parent
+            anchors.margins: Studio.Theme.space12
+            spacing: Studio.Theme.space12
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                spacing: Studio.Theme.space4
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Tài khoản và nhóm")
+                    font.weight: Font.DemiBold
+                    color: Studio.Theme.textOnSurface
+                    wrapMode: Text.WordWrap
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("%1 tài khoản phụ · %2 nhóm").arg((panel.setup.users || []).length).arg((panel.setup.groups || []).length)
+                    color: Studio.Theme.textOnSurfaceVariant
+                    font.pixelSize: Studio.Theme.bodySmall
+                    wrapMode: Text.WordWrap
+                }
+            }
+            Studio.StudioButton {
+                objectName: "extraAccountsToggle"
+                text: qsTr("Quản lý")
+                iconName: "group"
+                outlined: true
+                Accessible.name: qsTr("Quản lý tài khoản và nhóm bổ sung")
+                onClicked: accountManager.open()
+            }
+        }
+    }
+    Studio.AccountManagerDialog {
+        id: accountManager
         editor: panel.editor
         nodeIndex: panel.nodeIndex
-        accountName: panel.node && panel.node.user ? panel.node.user.name : ""
-        contextKey: panel.contextKey + ":" + (panel.editor.draft ? panel.editor.draft.revision : "")
-        mainAccount: true
-        sudoMode: panel.setup.sudo || "passwordless"
-        passwordState: panel.setup.password_hash || ""
-    }
-    Studio.StudioCheckBox {
-        id: extras
-        objectName: "extraAccountsToggle"
-        Layout.fillWidth: true
-        visible: panel.setupEnabled
-        text: qsTr("Tài khoản và nhóm bổ sung")
-    }
-    ColumnLayout {
-        Layout.fillWidth: true
-        visible: panel.setupEnabled && extras.checked
-        spacing: Studio.Theme.space12
-        Label {
-            Layout.fillWidth: true
-            text: qsTr("Tối đa 32 tài khoản và 32 nhóm. Nhóm riêng được tạo tự động; UID/GID ổn định từ 3000 đến 59999.")
-            color: Studio.Theme.textOnSurfaceVariant
-            wrapMode: Text.WordWrap
-        }
-        Studio.StudioTextField {
-            id: newAccount
-            objectName: "newAccountName"
-            Layout.fillWidth: true
-            maximumLength: 32
-            placeholderText: qsTr("Tên tài khoản mới")
-        }
-        Studio.StudioButton {
-            objectName: "addAccount"
-            text: qsTr("Thêm tài khoản")
-            enabled: newAccount.text.length > 0 && (panel.setup.users || []).length < 32 && !panel.editor.accountPasswordPending
-            onClicked: {
-                panel.editor.accountChange(panel.nodeIndex, "addUser", newAccount.text);
-                if (!panel.editor.localError) newAccount.clear();
-            }
-        }
-        Studio.StudioTextField {
-            id: newGroup
-            objectName: "newAccountGroup"
-            Layout.fillWidth: true
-            maximumLength: 32
-            placeholderText: qsTr("Tên nhóm mới")
-        }
-        Studio.StudioButton {
-            objectName: "addAccountGroup"
-            text: qsTr("Thêm nhóm")
-            enabled: newGroup.text.length > 0 && (panel.setup.groups || []).length < 32 && !panel.editor.accountPasswordPending
-            onClicked: {
-                panel.editor.accountChange(panel.nodeIndex, "addGroup", newGroup.text);
-                if (!panel.editor.localError) newGroup.clear();
-            }
-        }
-        Repeater {
-            model: panel.setup.users || []
-            delegate: ColumnLayout {
-                id: accountRow
-                required property var modelData
-                Layout.fillWidth: true
-                spacing: Studio.Theme.space8
-                Studio.AccountNameField {
-                    Layout.fillWidth: true
-                    editor: panel.editor
-                    nodeIndex: panel.nodeIndex
-                    accountName: accountRow.modelData.name
-                    contextKey: panel.contextKey
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: "UID " + accountRow.modelData.uid + " / GID " + accountRow.modelData.gid
-                    font.bold: true
-                    color: Studio.Theme.textOnSurface
-                    wrapMode: Text.WordWrap
-                }
-                Studio.AccountCredentials {
-                    Layout.fillWidth: true
-                    editor: panel.editor
-                    nodeIndex: panel.nodeIndex
-                    accountName: accountRow.modelData.name
-                    contextKey: panel.contextKey + ":" + (panel.editor.draft ? panel.editor.draft.revision : "")
-                    sudoMode: accountRow.modelData.sudo || "disabled"
-                    passwordState: accountRow.modelData.password_hash || "!"
-                }
-                Label { text: qsTr("Nhóm bổ sung"); color: Studio.Theme.textOnSurface }
-                Repeater {
-                    model: panel.node ? Accounts.groupNames(panel.node).filter(name => name !== accountRow.modelData.name) : []
-                    delegate: Studio.StudioCheckBox {
-                        required property string modelData
-                        objectName: "accountMembership-" + accountRow.modelData.name + "-" + modelData
-                        Layout.fillWidth: true
-                        text: modelData
-                        checked: (accountRow.modelData.groups || []).includes(modelData)
-                        onToggled: {
-                            const groups = accountRow.modelData.groups || [];
-                            panel.editor.accountChange(panel.nodeIndex, "groups", accountRow.modelData.name,
-                                checked ? groups.concat([modelData]) : groups.filter(name => name !== modelData));
-                        }
-                    }
-                }
-                Studio.StudioButton {
-                    objectName: "removeAccount-" + accountRow.modelData.name
-                    text: qsTr("Xóa tài khoản")
-                    danger: true
-                    outlined: true
-                    onClicked: panel.editor.accountChange(panel.nodeIndex, "removeUser", accountRow.modelData.name)
-                }
-            }
-        }
-        Label { text: qsTr("Nhóm bổ sung"); font.bold: true; color: Studio.Theme.textOnSurface }
-        Repeater {
-            model: panel.setup.groups || []
-            delegate: RowLayout {
-                id: groupRow
-                required property var modelData
-                Layout.fillWidth: true
-                Studio.AccountNameField {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    editor: panel.editor
-                    nodeIndex: panel.nodeIndex
-                    accountName: groupRow.modelData.name
-                    contextKey: panel.contextKey
-                    groupName: true
-                }
-                Label {
-                    text: "GID " + groupRow.modelData.gid
-                    color: Studio.Theme.textOnSurface
-                    wrapMode: Text.WordWrap
-                }
-                Studio.StudioButton {
-                    objectName: "removeAccountGroup-" + groupRow.modelData.name
-                    text: qsTr("Xóa nhóm")
-                    danger: true
-                    outlined: true
-                    onClicked: panel.editor.accountChange(panel.nodeIndex, "removeGroup", groupRow.modelData.name)
-                }
-            }
-        }
+        contextKey: panel.contextKey
     }
 }

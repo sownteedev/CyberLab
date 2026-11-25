@@ -14,14 +14,14 @@ import yaml
 
 from cyberlab.lab import LabError, load_lab, list_labs
 from cyberlab.lab.catalog import read_package
-from cyberlab.lab.exchange import FORMAT, MAX_ARCHIVE, create_package, read_package as read_exchange_package
+from cyberlab.lab.exchange import FORMAT, IMPORT_FORMATS, MAX_ARCHIVE, create_package, read_package as read_exchange_package
 from cyberlab.lab.package import load_snapshot, materialize
 from cyberlab.lab.loader import _LabYamlLoader
 from cyberlab.lab.topics import catalog as topic_catalog, require_tags
 from cyberlab.policy import PolicyDenied
 
 from .store import DraftConflict, DraftLimit, DraftNotFound, DraftStore, MAX_ASSET, MAX_DEFINITION, MAX_PACKAGE, MAX_PATHS, check_package
-from .updating import update_catalog
+from .updating import private_catalog, update_catalog
 from .profiles import image_profiles
 from .protection import EditProtection
 
@@ -91,7 +91,8 @@ class Authoring:
                 "static_networking": {"private_ipv4_only": True, "min_prefix": 16, "max_prefix": 30,
                                       "gateway_role": "bridge", "dns_scope": "attached-static-nodes", "overlap_policy": "reject"},
                 "publish_requires_admin": False, "publication_replaces_existing": False,
-                "lab_package_format": FORMAT, "lab_package_images": "references-only"}
+                "lab_package_format": FORMAT, "lab_package_import_formats": sorted(IMPORT_FORMATS),
+                "lab_package_images": "references-only"}
 
     def export_lab_package(self, lab_id, uid):
         with self.lifecycle_lock:
@@ -135,21 +136,21 @@ class Authoring:
         document["metadata"]["id"] = imported_id
         document["metadata"]["name"] = imported_title
         definition = json.dumps(document, indent=2, ensure_ascii=False)
-        if manifest.get("edit_protection"):
-            with self.lifecycle_lock, self.store.lock:
-                if (self.catalog / imported_id).exists():
-                    raise DraftConflict("Lab ID already exists; catalog entries are not overwritten")
-                snapshot = self.store.clone(imported_id, imported_title, definition, tuple(assets.items()), uid)
-                try:
+        with self.lifecycle_lock, self.store.lock:
+            if os.path.lexists(self.catalog / imported_id):
+                raise DraftConflict("Lab ID already exists; catalog entries are not overwritten")
+            snapshot = self.store.clone(imported_id, imported_title, definition, tuple(assets.items()), uid)
+            try:
+                if manifest.get("edit_protection"):
                     self.protection.install("draft", snapshot["id"], manifest["edit_protection"])
-                    result = self.publish(snapshot["id"], snapshot["revision"], snapshot["digest"], uid)
-                    if not result.get("published"):
-                        raise ValueError("Protected Lab could not be validated for import")
-                    return {"installed": True, "lab_id": imported_id, "edit_protected": True}
-                finally:
-                    self.store.delete(snapshot["id"], uid, snapshot["revision"])
-                    self.protection.link("draft", snapshot["id"], None)
-        return summary(self.store.clone(imported_id, imported_title, definition, tuple(assets.items()), uid))
+                result = self.publish(snapshot["id"], snapshot["revision"], snapshot["digest"], uid)
+                if not result.get("published"):
+                    raise ValueError("Lab could not be validated for import")
+                return {"installed": True, "lab_id": imported_id,
+                        "edit_protected": bool(manifest.get("edit_protection"))}
+            finally:
+                self.store.delete(snapshot["id"], uid, snapshot["revision"])
+                self.protection.link("draft", snapshot["id"], None)
 
     def create(self, lab_id, title, uid, tags=None, difficulty=None):
         tags = require_tags(tags)
@@ -342,22 +343,26 @@ class Authoring:
                 raise DraftConflict("Lab ID already exists; catalog entries are not overwritten")
             if len(catalog) >= MAX_CATALOG_LABS:
                 raise DraftLimit("Local library limit reached; no Lab was written")
-            group_id = pwd.getpwuid(uid).pw_gid if os.geteuid() == 0 and uid != 0 else os.getgid()
+            private = private_catalog(self.catalog)
+            group_id = pwd.getpwuid(uid).pw_gid if not private and os.geteuid() == 0 and uid != 0 else os.getgid()
             destination = self.catalog / report["lab_id"]
             stage = Path(tempfile.mkdtemp(prefix=".cyberlab-publish-", dir=self.catalog))
             previous_family = self.protection.family_id("lab", report["lab_id"], uid)
+            published = False
             try:
                 materialize(snapshot, stage)
                 self.policy.validate(load_lab(stage / "lab.yaml"))
                 for entry in stage.rglob("*"):
-                    entry.chmod(0o755 if entry.is_dir() else 0o644)
+                    entry.chmod((0o700 if entry.is_dir() else 0o600) if private else (0o755 if entry.is_dir() else 0o644))
                     if entry.is_file():
                         with entry.open("rb") as source:
                             os.fsync(source.fileno())
-                stage.chmod(0o755)
+                stage.chmod(0o700 if private else 0o755)
+                staged = stage.stat()
                 self.protection.inherit("draft", identifier, "lab", report["lab_id"], uid)
                 rename_new(stage, destination)
-                if uid != 0:
+                published = True
+                if not private and uid != 0:
                     for entry in (*destination.rglob("*"), destination):
                         try:
                             os.chown(entry, uid, group_id)
@@ -369,6 +374,11 @@ class Authoring:
                 finally:
                     os.close(descriptor)
             except BaseException:
+                if published:
+                    current = destination.stat(follow_symlinks=False)
+                    if (current.st_dev, current.st_ino) != (staged.st_dev, staged.st_ino):
+                        raise DraftConflict("Published Lab changed during recovery; retained for administrator review") from None
+                    rename_new(destination, stage)
                 self.protection.link("lab", report["lab_id"], previous_family)
                 raise
             finally:

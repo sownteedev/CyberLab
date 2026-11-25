@@ -20,6 +20,42 @@ ApplicationWindow {
     readonly property var desktopGeometry: WindowMetrics.initialSize(Screen.width, Screen.height, Screen.desktopAvailableWidth, Screen.desktopAvailableHeight)
     readonly property var editor: content.editor
     property bool smoke: false
+    property int settingsSection: 0
+
+    Studio.SystemUpdateService {
+        id: systemUpdater
+        automatic: !window.smoke && window.api.demo === false && !!window.api.prefix
+        prefix: window.api.prefix || [Quickshell.env("CYBERLAB_STUDIO_PYTHON") || "/usr/bin/python3", "-m", "cyberlab_cli.main"]
+        onNewVersion: window.api.notificationRequested(qsTr("Có bản CyberLab mới. Mở Cài đặt → Cập nhật để xem."), false)
+        onErrorOccurred: message => window.api.reportError(message)
+        onHandoffReady: {
+            if (window.editor.dirty || window.api.busy || window.api.starting) {
+                window.api.reportError(qsTr("Studio có thay đổi mới nên chưa đóng. Cửa sổ cập nhật sẽ chờ; hãy lưu nội dung trước."));
+                return;
+            }
+            window.allowClose = true;
+            window.close();
+        }
+    }
+    function canUpdate() {
+        if (editor.dirty) {
+            api.reportError(qsTr("Hãy lưu hoặc bỏ thay đổi đang sửa trước khi cập nhật."));
+            return false;
+        }
+        if (api.busy || api.starting || controller.sessions.some(session => session.state !== "STOPPED")) {
+            api.reportError(qsTr("Hãy đợi thao tác hoàn tất và dừng các phiên thực hành trước khi cập nhật."));
+            return false;
+        }
+        return true;
+    }
+    Studio.ConfirmDialog {
+        id: updateConfirmation
+        title: qsTr("Cập nhật CyberLab?")
+        message: qsTr("Studio sẽ đóng và mở cửa sổ cập nhật riêng. Khi hoàn tất, chọn Khởi động lại CyberLab. Các bài đã lưu được giữ nguyên.")
+        confirmText: qsTr("Tiếp tục cập nhật")
+        confirmEnabled: !systemUpdater.handingOff
+        onAccepted: if (window.canUpdate()) systemUpdater.begin()
+    }
 
     Connections {
         target: window.controller
@@ -47,7 +83,8 @@ ApplicationWindow {
         }
         showPage(index);
     }
-    function openSettings() {
+    function openSettings(section = 0) {
+        settingsSection = section;
         settingsLoader.returnFocus = activeFocusItem;
         settingsLoader.active = true;
     }
@@ -83,6 +120,7 @@ ApplicationWindow {
 
         AppBar {
             id: appBar
+            enabled: !systemUpdater.handingOff
             width: parent.width / Studio.Theme.zoomFactor
             scale: Studio.Theme.zoomFactor
             transformOrigin: Item.TopLeft
@@ -91,6 +129,7 @@ ApplicationWindow {
             connected: window.controller.connected
             currentIndex: window.controller.page
             demo: window.api.demo
+            updateAvailable: systemUpdater.available
             windowMaximized: window.visibility === Window.Maximized
 
             onCloseRequested: window.close()
@@ -103,7 +142,7 @@ ApplicationWindow {
                     window.showMaximized();
             }
             onRefreshRequested: window.controller.refresh()
-            onSettingsRequested: window.openSettings()
+            onSettingsRequested: window.openSettings(systemUpdater.available ? 4 : 0)
         }
     }
 
@@ -113,7 +152,9 @@ ApplicationWindow {
         controller.refresh();
     }
     onClosing: event => {
-        if (!window.allowClose && (window.editor.dirty || window.api.busy || window.api.starting)) {
+        if (systemUpdater.handingOff) {
+            event.accepted = false;
+        } else if (!window.allowClose && (window.editor.dirty || window.api.busy || window.api.starting)) {
             event.accepted = false;
             windowDialogs.confirmClose();
         } else {
@@ -130,6 +171,7 @@ ApplicationWindow {
             anchors.fill: parent
             api: window.api
             controller: window.controller
+            enabled: !systemUpdater.handingOff
             dialogs: windowDialogs
 
             onShowPageRequested: index => window.showPage(index)
@@ -158,6 +200,9 @@ ApplicationWindow {
 
             sourceComponent: Component {
                 SettingsDialog {
+                    sectionIndex: window.settingsSection
+                    updater: systemUpdater
+                    onUpdateRequested: if (window.canUpdate()) updateConfirmation.open()
                     returnFocus: settingsLoader.returnFocus
                     terminals: terminalStore
                     guiPreferences: guiStore

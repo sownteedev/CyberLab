@@ -1,18 +1,17 @@
 from hashlib import sha256
-from io import BytesIO
-import json
-import stat
-import zipfile
+import struct
 
 from cyberlab.archives import json_object, read_zip
-from .package import MAX_DEFINITION, MAX_PACKAGE, MAX_PATHS, check_package, digest
+from .package import MAX_DEFINITION, MAX_PACKAGE, MAX_PATHS, PackageLimit, check_package, digest
+from . import exchange_v3
+from .exchange_v3 import MAX_ARCHIVE, MAX_MANIFEST
 
-FORMAT = "cyberlab-lab/v1"
+FORMAT = "cyberlab-lab/v3"
+LEGACY_FORMAT = "cyberlab-lab/v1"
 PROTECTED_FORMAT = "cyberlab-lab/v2"
+IMPORT_FORMATS = frozenset({LEGACY_FORMAT, PROTECTED_FORMAT, FORMAT})
 MANIFEST = "manifest.json"
 DEFINITION = "lab.yaml"
-MAX_ARCHIVE = 4 * 1024 * 1024
-MAX_MANIFEST = 64 * 1024
 
 
 class LabPackageError(ValueError):
@@ -40,37 +39,52 @@ def create_package(definition, assets, lab, edit_protection=None):
     }
     if edit_protection is not None:
         from cyberlab.authoring.protection import validate_verifier
-        manifest.update(format=PROTECTED_FORMAT, edit_protection=validate_verifier(edit_protection))
-    manifest_bytes = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+        manifest["edit_protection"] = validate_verifier(edit_protection)
+    manifest_bytes = exchange_v3.canonical(manifest)
     if len(manifest_bytes) > MAX_MANIFEST:
         raise LabPackageError("Lab package manifest exceeds its limit")
-    output = BytesIO()
-    with zipfile.ZipFile(output, "w", allowZip64=False) as archive:
-        for path, data in [(MANIFEST, manifest_bytes), (DEFINITION, definition_bytes), *sorted(assets.items())]:
-            info = zipfile.ZipInfo(path + "/" if data is None else path, (1980, 1, 1, 0, 0, 0))
-            info.create_system = 3
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = ((stat.S_IFDIR | 0o755) if data is None else (stat.S_IFREG | 0o644)) << 16
-            archive.writestr(info, b"" if data is None else data)
-    result = output.getvalue()
-    if len(result) > MAX_ARCHIVE:
-        raise LabPackageError("Lab package archive exceeds 4 MiB")
-    return result
+    try:
+        return exchange_v3.encode(definition, assets, manifest)
+    except ValueError as error:
+        raise LabPackageError(str(error)) from None
+
+def _legacy_entries(data):
+    end = struct.Struct("<4s4H2IH")
+    lower = max(0, len(data) - end.size - 65535)
+    position = data.rfind(b"PK\x05\x06", lower)
+    while position >= lower:
+        if position + end.size <= len(data):
+            _, disk, directory_disk, disk_count, count, size, offset, comment = end.unpack_from(data, position)
+            if (position + end.size + comment == len(data) and disk == directory_disk == 0
+                    and disk_count == count and offset + size == position):
+                return read_zip(data, max_archive=MAX_ARCHIVE, max_entries=MAX_PATHS + 2,
+                                max_content=MAX_PACKAGE + MAX_MANIFEST)
+        position = data.rfind(b"PK\x05\x06", lower, position)
+    raise ValueError("Legacy Lab ZIP has invalid lengths or trailing data")
 
 
 def read_package(data):
     try:
-        entries = read_zip(data, max_archive=MAX_ARCHIVE, max_entries=MAX_PATHS + 2,
-                           max_content=MAX_PACKAGE + MAX_MANIFEST)
-        manifest = json_object(entries.pop(MANIFEST, None), MAX_MANIFEST)
-        if manifest.get("format") not in {FORMAT, PROTECTED_FORMAT}:
+        if not isinstance(data, bytes) or not data or len(data) > MAX_ARCHIVE:
+            raise ValueError("Lab package exceeds 4 MiB or is empty")
+        if data.startswith(exchange_v3.MAGIC):
+            definition, entries, manifest = exchange_v3.decode(data)
+            definition_bytes = definition.encode("utf-8")
+            allowed_formats = {FORMAT}
+        elif data.startswith(b"PK\x03\x04"):
+            entries = _legacy_entries(data)
+            manifest = json_object(entries.pop(MANIFEST, None), MAX_MANIFEST)
+            definition_bytes = entries.pop(DEFINITION, None)
+            allowed_formats = {LEGACY_FORMAT, PROTECTED_FORMAT}
+        else:
+            raise ValueError("Unsupported Lab package container")
+        if not isinstance(manifest.get("format"), str) or manifest["format"] not in allowed_formats:
             raise ValueError("Unsupported Lab package format")
-        if manifest["format"] == PROTECTED_FORMAT:
+        if manifest["format"] == PROTECTED_FORMAT or "edit_protection" in manifest:
+            if manifest["format"] == LEGACY_FORMAT:
+                raise ValueError("Editing protection requires Lab package v2 or v3")
             from cyberlab.authoring.protection import validate_verifier
             validate_verifier(manifest.get("edit_protection"))
-        elif "edit_protection" in manifest:
-            raise ValueError("Editing protection requires Lab package v2")
-        definition_bytes = entries.pop(DEFINITION, None)
         if not isinstance(definition_bytes, bytes) or len(definition_bytes) > MAX_DEFINITION:
             raise ValueError("Lab package definition is missing or too large")
         definition_meta = manifest.get("definition")
@@ -97,5 +111,5 @@ def read_package(data):
         if manifest.get("content_digest") != digest(definition, entries):
             raise ValueError("Lab package content digest does not match")
         return definition, entries, manifest
-    except (ValueError, UnicodeError) as error:
+    except (ValueError, UnicodeError, PackageLimit, RecursionError) as error:
         raise LabPackageError(str(error)) from None

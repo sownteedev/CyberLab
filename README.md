@@ -34,8 +34,9 @@ controls Docker directly. A Lab is a template; a Session is an instance of it.
 | `docs/` | Feature documentation, architecture decisions and deployment history. |
 | `.agents/` | Development guidance and third-party agent skills. |
 
-Production labs live outside the repository at
-`/home/<user>/CyberLab-labs`. Do not copy tests or examples into that catalog
+New installations keep private production labs at `/var/lib/cyberlab/labs`.
+Existing installations may still use `/home/<user>/CyberLab-labs`; updates
+preserve that configured location. Do not copy tests or examples into that catalog
 as part of development, cleanup or installation verification. Drafts, saved
 practice, Docker images and installed services are also not part of a Git clone.
 The old `tests/` suite and example Labs are not included in this checkout;
@@ -54,7 +55,18 @@ In particular, the inspected Ubuntu 24.04 optional repository does not supply
 the required native Quickshell package. Do not remove a working legacy runtime
 or assume this script upgrades Ubuntu to resolve that limitation.
 
-After cloning this repository, the verified Ubuntu 26.04 native-package path is:
+The new bootstrap supports installing without a checkout or Git:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sownteedev/CyberLab/master/install.sh | bash
+```
+
+This command requires the new installer to have been published to `master`.
+Local tests do not establish that the public link has been deployed or that a
+clean-machine installation has passed. See `docs/system-install-update.md` for
+the workflow, verification limits and recovery policy.
+
+For an existing development checkout, the native-package path remains:
 
 ```sh
 bash install.sh --plan --enable-quickshell-repo  # Review the optional source/key
@@ -76,8 +88,9 @@ compatible terminal is found does a dependency installation propose
 `xfce4-terminal` as fallback. Studio's Settings > Terminal and
 `cyberlab terminal-apps --set auto|ID` share a per-user preference; see
 `docs/terminal-windows.md`. Check/update/no-deps never install a terminal.
-It creates an empty `~/CyberLab-labs` only when absent, preserves an existing
-catalog and does not copy example Labs. It preloads the approved BusyBox base
+It creates an empty root-private `/var/lib/cyberlab/labs` on a new installation,
+does not copy example Labs, and does not move a legacy catalog on update.
+It preloads the approved BusyBox base
 image; other Lab images must be prepared and allowed separately.
 
 For administrator-enabled Ubuntu workstation Labs, the installer also provides
@@ -126,6 +139,8 @@ bash install.sh --check          # Versions/QML check; no package/service change
 sudo bash install.sh --check --user "$USER"  # Also verify privileged Docker API health
 bash install.sh --deps-only      # Only prepare native host dependencies
 bash install.sh --update         # After git pull; guarded app-only update
+cyberlab update --check          # Check master without sudo or a daemon connection
+cyberlab update                  # Download one pinned commit; guarded app-only update
 cyberlab info                    # Run as the desktop user, without sudo
 cyberlab-studio
 ```

@@ -102,6 +102,8 @@ def dispatch(authoring, member, body, uid, token=""):
         if isinstance(result, str):
             payload = json.loads(result)
             if isinstance(payload, dict) and "definition" in payload and "id" in payload:
+                if member != "CloneLab":
+                    authoring.protection.require("draft", payload["id"], uid, token)
                 payload["edit_protected"] = authoring.protection.protected("draft", payload["id"], uid)
                 if member == "CloneLab" and payload["edit_protected"]:
                     payload["edit_token"] = authoring.protection.grant(authoring.protection.record("draft", payload["id"], uid), uid)
