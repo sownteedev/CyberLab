@@ -11,6 +11,7 @@ Item {
     property bool available: false
     property string installedCommit: ""
     property string latestCommit: ""
+    property string comparison: "unknown"
     property string problem: ""
     property bool checked: false
     property bool manualCheck: false
@@ -33,6 +34,7 @@ Item {
         if (code !== 0 || !result || result.event !== "checked" || !validCommit(result.latest)
                 || (result.installed !== null && !validCommit(result.installed)) || typeof result.available !== "boolean") {
             problem = result && result.message ? result.message : qsTr("Chưa kiểm tra được cập nhật. Kiểm tra kết nối rồi thử lại.");
+            available = false;
             if (manualCheck) errorOccurred(problem);
             return;
         }
@@ -40,7 +42,9 @@ Item {
         problem = "";
         installedCommit = result.installed || "";
         latestCommit = result.latest;
-        available = validCommit(result.installed) && result.installed !== result.latest && result.available;
+        comparison = result.installed === result.latest ? "identical"
+            : validCommit(result.installed) && ["ahead", "behind", "diverged"].indexOf(result.comparison) >= 0 ? result.comparison : "unknown";
+        available = comparison === "ahead" && result.available;
         if (available && stored.lastNotified !== latestCommit) {
             stored.lastNotified = latestCommit;
             stored.sync();

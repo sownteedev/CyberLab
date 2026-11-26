@@ -30,7 +30,9 @@ ColumnLayout {
                         Layout.fillWidth: true
                         text: page.updater.checking ? qsTr("Đang kiểm tra…") : page.updater.problem ? qsTr("Chưa kiểm tra được")
                             : page.updater.available ? qsTr("Có bản cập nhật")
-                            : page.updater.checked && !page.updater.installedCommit ? qsTr("Chưa xác định phiên bản")
+                            : page.updater.checked && page.updater.comparison === "behind" ? qsTr("Bản cài đi trước GitHub")
+                            : page.updater.checked && page.updater.comparison === "diverged" ? qsTr("Bản cài khác nhánh GitHub")
+                            : page.updater.checked && (!page.updater.installedCommit || page.updater.installedCommit !== page.updater.latestCommit) ? qsTr("Chưa xác định phiên bản")
                             : page.updater.checked ? qsTr("Bạn đang dùng bản mới nhất") : qsTr("Cập nhật CyberLab")
                         font.pixelSize: Studio.Theme.titleMedium
                         font.weight: Font.DemiBold
@@ -56,7 +58,11 @@ ColumnLayout {
             }
             Label {
                 Layout.fillWidth: true
-                text: page.updater.checked && !page.updater.installedCommit
+                text: page.updater.checked && page.updater.comparison === "behind"
+                    ? qsTr("Giữ nguyên bản cài hiện tại, không cần cập nhật.")
+                    : page.updater.checked && page.updater.comparison === "diverged"
+                    ? qsTr("Lịch sử mã nguồn khác nhau; không tự thay thế bản cài.")
+                    : page.updater.checked && !page.updater.available && page.updater.installedCommit !== page.updater.latestCommit
                     ? qsTr("Chưa thể so sánh bản cài này với GitHub.")
                     : qsTr("Lưu nội dung đang sửa và dừng các bài trước khi cập nhật.")
                 color: Studio.Theme.textOnSurfaceVariant

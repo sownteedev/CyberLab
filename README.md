@@ -1,218 +1,352 @@
 # CyberLab
 
-CyberLab is a graduation thesis project for creating and running isolated,
-container-based learning labs on Linux desktops, physical machines or VMs. Studio provides the Quickshell
-interface; the CLI exposes the same daemon API.
+**Tạo bài, thực hành và kiểm tra kết quả trong một ứng dụng Linux.**
 
-## Architecture
+CyberLab là đồ án tốt nghiệp xây dựng môi trường thực hành Linux, mạng máy tính
+và an toàn thông tin dựa trên container. Người biên soạn cấu hình bài bằng giao
+diện; người học mở bài, làm Quiz, thao tác trên các máy thực hành và dùng
+Checkwork để kiểm tra kết quả.
 
-```text
-Studio (Quickshell) / CLI
-           |
-      System D-Bus
-           |
-       cyberlabd
-           |
-    CyberLab Engine
-           |
-     Docker Engine
+> CyberLab đang được phát triển. Các kiểm thử cách ly không thay thế kiểm thử
+> Docker thật hoặc cài đặt trên máy sạch. Phạm vi đã kiểm chứng và các giới hạn
+> được ghi riêng trong tài liệu kiểm thử.
+
+## Mục lục
+
+- [Chức năng chính](#chức-năng-chính)
+- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
+- [Luồng sử dụng](#luồng-sử-dụng)
+- [Quiz, Result, Goal và Checkwork](#quiz-result-goal-và-checkwork)
+- [Cài đặt và cập nhật](#cài-đặt-và-cập-nhật)
+- [Dữ liệu và bảo mật](#dữ-liệu-và-bảo-mật)
+- [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
+- [Phát triển và kiểm thử](#phát-triển-và-kiểm-thử)
+- [Tài liệu chuyên sâu](#tài-liệu-chuyên-sâu)
+
+## Chức năng chính
+
+| Nhóm          | Khả năng                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Thư viện      | Tìm kiếm, lọc theo chủ đề và độ khó; xem hướng dẫn; nhập và xuất bài.                           |
+| Biên soạn     | Tạo và sửa bài, lưu bản nháp, cấu hình máy, tài khoản/nhóm, mạng, phần mềm và script khởi động. |
+| Trình sửa tệp | Cây thư mục, tạo/đổi tên/nhập/xóa tệp, tô màu cú pháp và xem trước hướng dẫn Markdown.          |
+| Thực hành     | Khởi chạy nhiều máy container, mở terminal, chạy ứng dụng GUI và thực hành kết nối mạng.        |
+| Lưu tiến độ   | Lưu điểm khôi phục, tiếp tục bài và đặt lại môi trường theo thao tác được chọn.                 |
+| Đánh giá      | Quiz, thu thập Result, đánh giá Goal, Checkwork và xuất báo cáo/bằng chứng.                     |
+| Chia sẻ       | Xuất gói `.cyberlab`, nhập vào thư viện và bảo vệ thao tác chỉnh sửa bằng mật khẩu.             |
+
+## Kiến trúc hệ thống
+
+CyberLab tách giao diện, API đặc quyền, nghiệp vụ và hạ tầng thực thi. Studio và
+CLI dùng chung API của daemon; không thành phần giao diện nào điều khiển Docker
+trực tiếp.
+
+```mermaid
+flowchart TB
+    subgraph Client["Tài khoản người dùng"]
+        Studio["CyberLab Studio<br/>Quickshell · QML"]
+        CLI["CyberLab CLI<br/>Python"]
+        Studio -->|"Gọi CLI với danh sách tham số"| CLI
+    end
+
+    Bus["System D-Bus<br/>API dùng chung"]
+
+    subgraph Service["Dịch vụ hệ thống"]
+        Daemon["cyberlabd<br/>Xác thực và phân quyền"]
+        Engine["CyberLab Engine<br/>Nghiệp vụ bài lab và phiên thực hành"]
+        Policy["Chính sách thực thi<br/>Image · đường dẫn · quyền truy cập"]
+        Store[("Kho bài · bản nháp<br/>trạng thái · báo cáo")]
+        Adapter["DockerRuntime<br/>Bộ điều hợp thực thi"]
+        Daemon --> Engine
+        Engine --> Policy
+        Engine <--> Store
+        Engine --> Adapter
+    end
+
+    CLI <-->|"Yêu cầu / kết quả"| Bus
+    Bus <--> Daemon
+    Adapter --> Docker["Docker Engine"]
+    Docker --> Nodes["Container máy thực hành"]
+    Docker --> Networks["Mạng của phiên thực hành"]
+
+    classDef client fill:#e8f0fe,stroke:#3566a8,color:#142b49;
+    classDef service fill:#e6f4ea,stroke:#357a4b,color:#173b23;
+    classDef runtime fill:#fff4db,stroke:#a67419,color:#49330b;
+    class Studio,CLI client;
+    class Daemon,Engine,Policy,Adapter service;
+    class Docker,Nodes,Networks runtime;
 ```
 
-Studio may invoke the unprivileged CLI with explicit arguments. Neither client
-controls Docker directly. A Lab is a template; a Session is an instance of it.
+### Trách nhiệm từng tầng
 
-## Repository
+| Thành phần        | Trách nhiệm                                                                                    | Ranh giới                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Studio**        | Hiển thị thư viện, trình biên soạn và màn hình thực hành; quản lý tương tác người dùng.        | Không truy cập Docker socket hoặc tự ghi vào kho bài hệ thống. |
+| **CLI**           | Chuyển thao tác thành yêu cầu API; hỗ trợ người dùng terminal và các tiến trình do Studio gọi. | Không tự triển khai nghiệp vụ Docker.                          |
+| **cyberlabd**     | Tiếp nhận yêu cầu qua System D-Bus, kiểm tra tài khoản gọi và quyền sở hữu tài nguyên.         | Là điểm vào đặc quyền của các thao tác bài lab.                |
+| **Engine**        | Kiểm tra định nghĩa, quản lý bản nháp/phiên, chuẩn bị phần mềm và thực hiện đánh giá.          | Không phụ thuộc Quickshell hay giao diện người dùng.           |
+| **DockerRuntime** | Chuyển yêu cầu thực thi thành thao tác container, mạng và image.                               | Docker là hạ tầng nội bộ, không phải định dạng API công khai.  |
 
-| Directory | Purpose |
-| --- | --- |
-| `engine/` | Lab definitions, authoring, Session lifecycle and runtime adapters. |
-| `daemon/` | Shared D-Bus API, authorization and installation configuration. |
-| `cli/` | Command-line client and terminal-window integration. |
-| `ui/` | Quickshell Studio, shared components, icons and bundled Inter fonts. |
-| `schemas/` | Versioned lab-definition schemas. |
-| `tools/` | Native installer helpers, source UI launcher and guarded updates. |
-| `docs/` | Feature documentation, architecture decisions and deployment history. |
-| `.agents/` | Development guidance and third-party agent skills. |
+Các lệnh quản trị **cài đặt/cập nhật ứng dụng** có luồng riêng với xác thực quản
+trị, khóa thao tác và phục hồi khi lỗi; không phải API thực hành của daemon.
 
-New installations keep private production labs at `/var/lib/cyberlab/labs`.
-Existing installations may still use `/home/<user>/CyberLab-labs`; updates
-preserve that configured location. Do not copy tests or examples into that catalog
-as part of development, cleanup or installation verification. Drafts, saved
-practice, Docker images and installed services are also not part of a Git clone.
-The old `tests/` suite and example Labs are not included in this checkout;
-historical documentation referring to them is not a runnable verification guide.
-Maintained isolated checks remain in `tools/check_*.py` and `ui/studio/testing/`;
-see `tools/README.md`. They are not required to install or run the application. Keep `schemas/`: the
-engine uses it to validate Lab definitions and exposes it to the editor.
+### Các khái niệm dữ liệu
 
-## Install On Another Machine
+- **Lab:** mẫu bài gồm cấu hình máy, mạng, tài nguyên, hướng dẫn và tiêu chí đánh giá.
+- **Draft:** bản nháp đang biên soạn; thay đổi chỉ trở thành bài trong thư viện sau khi lưu/publish phù hợp.
+- **Session:** một phiên thực hành của người dùng từ Lab; dữ liệu làm bài không sửa ngược mẫu bài.
+- **Checkpoint:** điểm khôi phục được lưu cho phiên; không đồng nghĩa với mẫu bài hay image phần mềm dùng chung.
+- **Report:** kết quả đánh giá và bằng chứng thu thập tại một lần kiểm tra/nộp bài.
 
-Ubuntu is the primary installation and development target. The other Linux
-package-manager adapters remain available, but expanding distro coverage is
-not the current priority. See the verified releases and limitations in
-`docs/install-mvp.md`; an adapter alone does not mean a release is supported.
-In particular, the inspected Ubuntu 24.04 optional repository does not supply
-the required native Quickshell package. Do not remove a working legacy runtime
-or assume this script upgrades Ubuntu to resolve that limitation.
+## Luồng sử dụng
 
-The new bootstrap supports installing without a checkout or Git:
+```mermaid
+flowchart LR
+    Author["Tạo bài trong Studio"] --> Draft["Cấu hình và lưu bản nháp"]
+    Draft --> Validate["Kiểm tra và lưu vào thư viện"]
+    Validate --> Lab["Bài lab"]
+    Lab --> Share["Xuất / nhập gói .cyberlab"]
+    Lab --> Quiz["Làm Quiz trước bài<br/>nếu được cấu hình"]
+    Quiz --> Prepare["Chuẩn bị môi trường<br/>và phần mềm"]
+    Prepare --> Practice["Mở terminal / GUI<br/>và thực hành"]
+    Practice --> Check["Checkwork và báo cáo"]
+    Check --> Practice
+    Practice --> Save["Lưu tiến độ / dừng"]
+    Save --> Resume["Tiếp tục từ điểm đã lưu"]
+    Resume --> Practice
+```
 
-```sh
+1. **Biên soạn:** nhập thông tin bài, chủ đề, độ khó; thêm máy và cấu hình mạng,
+   tài khoản, tệp, phần mềm, hướng dẫn, Quiz và tiêu chí chấm khi cần.
+2. **Lưu vào thư viện:** hệ thống kiểm tra cấu hình và tài nguyên trước khi công bố.
+   Người dùng không cần tự tạo cây thư mục bài ngoài ứng dụng.
+3. **Bắt đầu:** trả lời Quiz trước bài nếu có, xem đáp án rồi chuyển sang thực hành.
+   Không bắt buộc đạt điểm tuyệt đối mới được vào bài.
+4. **Chuẩn bị môi trường:** phần mềm chưa được chuẩn bị sẽ được xử lý trước khi mở
+   các terminal. Cài sẵn giúp giảm thời gian chờ ở bước này.
+5. **Thực hành và đánh giá:** thao tác trên các máy, chạy Checkwork và xem kết quả;
+   lưu tiến độ hoặc xuất báo cáo theo nhu cầu.
+
+GUI ưu tiên đường hiển thị native X11/XWayland khi đáp ứng các kiểm tra của hệ
+thống; Xpra là phương án dự phòng. Khả năng hiển thị phải được xác minh trên
+phiên desktop thực tế, không suy ra chỉ từ việc gói phần mềm đã cài thành công.
+
+## Quiz, Result, Goal và Checkwork
+
+| Khái niệm     | Vai trò                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| **Quiz**      | Câu hỏi kiến thức phục vụ chuẩn bị hoặc củng cố bài; tách biệt với kiểm tra trạng thái máy.  |
+| **Result**    | Khai báo dữ liệu cần thu thập từ môi trường; có thể chỉ thu thập hoặc có điều kiện đánh giá. |
+| **Goal**      | Khai báo mục tiêu và điều kiện tổng hợp dựa trên kết quả thu thập.                           |
+| **Checkwork** | Thực hiện thu thập, đánh giá các tiêu chí đã cấu hình và tạo kết quả phản hồi.               |
+
+```mermaid
+flowchart LR
+    Request["Người học nhấn Checkwork"] --> Collect["Thu thập Result<br/>từ phiên hiện tại"]
+    Collect --> Evaluate["Đánh giá điều kiện<br/>Result / Goal"]
+    Evaluate --> Report["Kết quả và bằng chứng"]
+    Collect --> Failure["Ghi nhận thiếu dữ liệu,<br/>lỗi hoặc hết thời gian"]
+    Failure --> Report
+```
+
+**Thu thập thành công không tự có nghĩa là làm bài đúng.** Bài không có tiêu chí
+chấm cần được phân biệt với bài đạt yêu cầu. Checkwork phục vụ phản hồi thực hành,
+không được xem là hệ thống thi chống gian lận trên máy do người học toàn quyền quản trị.
+
+## Cài đặt và cập nhật
+
+### Yêu cầu môi trường
+
+- Máy Linux hoặc máy ảo Linux có **systemd** và **System D-Bus** đang hoạt động.
+- **Python 3.12 trở lên**, Docker Engine và Quickshell native **0.3.1 trở lên**,
+  cùng các module Qt/QML mà bộ cài kiểm tra.
+- Quyền quản trị qua `sudo` để cài dịch vụ và runtime hệ thống.
+- Internet để tải nguồn, dependency và image chưa có; đủ dung lượng cho build,
+  image, dữ liệu thực hành và bản sao phục hồi.
+
+Ubuntu là mục tiêu chính của dự án. Có bộ điều hợp cho các trình quản lý gói
+Linux khác, nhưng có bộ điều hợp **không đồng nghĩa** mọi phiên bản distro đã
+được xác nhận hỗ trợ. Đặc biệt, cần kiểm tra nguồn cung cấp Quickshell native;
+bộ cài không tự nâng hệ điều hành để giải quyết dependency thiếu.
+
+Ưu tiên cài mới trên **Ubuntu 26.04 LTS và Debian 13**; giữ đường cài Arch.
+**Ubuntu 24.04 / Linux Mint 22.x chưa có đường cài tự động đầy đủ** vì thiếu
+Quickshell trong nguồn đã duyệt, không nên thêm PPA rồi coi là đã hỗ trợ.
+Xem [bảng nền tảng và kết quả kiểm thử](docs/installation/platforms.md) trước khi
+cài trên máy khác. Windows/macOS không chạy trực tiếp bộ cài Linux này.
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/sownteedev/CyberLab/master/install.sh | bash
 ```
 
-This command requires the new installer to have been published to `master`.
-Local tests do not establish that the public link has been deployed or that a
-clean-machine installation has passed. See `docs/system-install-update.md` for
-the workflow, verification limits and recovery policy.
+Chỉ chạy script từ nguồn bạn tin cậy. Bootstrap lấy snapshot của một commit
+cụ thể trên `master`, build bằng tài khoản thường rồi cài vào vị trí hệ thống.
+Source/build tạm không trở thành checkout trong thư mục cá nhân. Python và QML
+cần để chạy ứng dụng vẫn nằm trong runtime đã cài.
 
-For an existing development checkout, the native-package path remains:
+> Lệnh trên dùng phiên bản đã có trên GitHub, không dùng thay đổi chưa push trên
+> máy phát triển. README này không phải bằng chứng cài đặt đã đạt trên máy sạch;
+> xem [hướng dẫn và giới hạn kiểm chứng](docs/installation/README.md).
 
-```sh
-bash install.sh --plan --enable-quickshell-repo  # Review the optional source/key
-bash install.sh --enable-quickshell-repo         # Explicitly accept that source
+### Cài từ checkout
+
+Chạy tại thư mục gốc repo:
+
+```bash
+bash install.sh --plan       # Xem kế hoạch dependency
+bash install.sh              # Cài ứng dụng và dịch vụ hệ thống
+bash install.sh --check      # Kiểm tra môi trường, không thay đổi bản cài
 ```
 
-These commands opt in to the third-party native Quickshell repository. If a
-compatible Quickshell package is already available in enabled repositories,
-omit `--enable-quickshell-repo`: use `bash install.sh --plan`, then
-`bash install.sh`. The installer still reviews the dependency transaction.
+Bộ cài hiển thị và yêu cầu xác nhận giao dịch dependency khi cần. Không tự thêm
+repository bên thứ ba, nâng cấp toàn hệ điều hành hay thay Python hệ thống.
+Tùy chọn nguồn Quickshell và kiểm tra Docker có quyền quản trị được giải thích
+trong [hướng dẫn cài đặt](docs/installation/README.md).
 
-The script requests sudo, detects the calling desktop user, builds the app as
-that unprivileged user and installs the Python runtime, System D-Bus policy,
-`cyberlabd` service, CLI and application-menu shortcut. Quickshell, Qt and Docker
-come from the target distribution's enabled package repositories;
-the installer does not download an AppImage.
-Existing native terminals are reused; Konsole is not required. Only when no
-compatible terminal is found does a dependency installation propose
-`xfce4-terminal` as fallback. Studio's Settings > Terminal and
-`cyberlab terminal-apps --set auto|ID` share a per-user preference; see
-`docs/terminal-windows.md`. Check/update/no-deps never install a terminal.
-It creates an empty root-private `/var/lib/cyberlab/labs` on a new installation,
-does not copy example Labs, and does not move a legacy catalog on update.
-It preloads the approved BusyBox base
-image; other Lab images must be prepared and allowed separately.
+### Mở ứng dụng
 
-For administrator-enabled Ubuntu workstation Labs, the installer also provides
-the host-side `xpra` client. CyberLab installs the isolated application-display
-packages inside the selected Lab machine only after confirmation through
-**Ứng dụng**. Run an installed GUI application in that machine's terminal to
-show its own window, not an entire VNC desktop. The client runs automatically;
-there is no viewer to configure manually. CyberLab does not install
-Firefox/Wireshark or a desktop environment on the host. Previously installed
-TigerVNC packages are not removed automatically. See `docs/ubuntu-workstations.md`.
-
-Linux GUI compatibility is capability-based, not a DE/WM allowlist. Run
-`cyberlab gui-status` as the desktop user to check the local Xpra client and
-actual X11/XWayland display connection without contacting the daemon. Wayland
-hosts need working XWayland (Niri uses xwayland-satellite); a missing display
-does not disable terminal practice or require changing desktop environments.
-
-On a verified local Xorg session, Auto can use native X11. Wayland always uses
-Xpra, even when XWayland provides `DISPLAY`. Native X11 shares the host X
-server and is less isolated; choose **Luôn dùng Xpra** for stronger display
-isolation. See `docs/native-x11-safety.md` for the authorization lifecycle and
-the isolated safety checks.
-
-The installer has adapters for Arch-based systems (`pacman`), Debian/Ubuntu
-and derivatives (`apt`), Fedora (`dnf`) and openSUSE (`zypper`). The host needs
-systemd, System D-Bus, Python 3.12+, native Quickshell 0.3.1+ with its matching
-Qt/QML packages, and a normal graphical desktop. Support depends on the packages
-available for that distro/release; this is not a claim that every Linux OS is
-certified. Immutable systems, NixOS and non-systemd distributions are not covered.
-
-If `quickshell` is missing from enabled repositories, installation stops with
-instructions; no PPA/COPR/OBS/AUR is silently enabled. Review the upstream native
-package instructions referenced in `docs/install-mvp.md` before enabling an
-additional repository. `bash install.sh --plan --enable-quickshell-repo`
-shows the optional source and signing key; installing with
-`--enable-quickshell-repo` explicitly opts in to that third-party source.
-This source-only plan does not resolve packages until the source is enabled.
-The installer does not perform a whole-OS upgrade or
-replace the system Python. Use `--no-deps` for manually prepared prerequisites.
-Python libraries still come from pip into a **private venv**, never system pip;
-distro Python package versions do not necessarily meet `pyproject.toml`.
-Initial installation requires internet for missing packages, wheels and images.
-
-```sh
-bash install.sh --check          # Versions/QML check; no package/service changes
-sudo bash install.sh --check --user "$USER"  # Also verify privileged Docker API health
-bash install.sh --deps-only      # Only prepare native host dependencies
-bash install.sh --update         # After git pull; guarded app-only update
-cyberlab update --check          # Check master without sudo or a daemon connection
-cyberlab update                  # Download one pinned commit; guarded app-only update
-cyberlab info                    # Run as the desktop user, without sudo
+```bash
+cyberlab info
 cyberlab-studio
 ```
 
-Updates require all users' Sessions to be stopped, preserve drafts/catalog/config
-and do not upgrade Quickshell/Qt or close Studio. Save editor work and reopen
-Studio yourself after an update. Use `--user NAME` when invoking from a root
-shell. Details and failure recovery: [installation guide](docs/install-mvp.md).
+Cũng có thể mở **CyberLab Studio** từ menu ứng dụng. Chạy giao diện và CLI thực
+hành bằng tài khoản thường, không dùng `sudo`.
 
-On a daily-use machine the installer reuses existing system Docker/Qt/Python
-packages instead of switching providers. It displays the resolved package
-transaction and asks before installing it (`--yes` for explicit unattended
-approval). Existing package upgrades require `--allow-dependency-upgrades`;
-removals/downgrades are rejected. Missing repository packages, incompatible
-native runtimes and conflicting Docker setups stop with a diagnostic rather
-than silently replacing the user's environment. An unprivileged `--check`
-returns 2 when Docker health still needs an administrator check.
+### Chọn đúng cách cập nhật
 
-## Development Setup
+| Nhu cầu                                     | Lệnh                       |
+| ------------------------------------------- | -------------------------- |
+| Kiểm tra bản trên GitHub                    | `cyberlab update --check`  |
+| Tải và cài bản từ nhánh `master`            | `cyberlab update`          |
+| Build và cài source hiện tại trong checkout | `bash install.sh --update` |
 
-Moving from a VM to a physical machine does not change the application
-architecture. Install host dependencies and the daemon using `install.sh` on
-the new machine. Do not copy the old `.venv`, root runtime or OS configuration.
-The default development workflow uses native Quickshell; the launcher retains
-compatibility with an already-installed legacy runtime only to avoid breaking
-the old VM's shortcuts. A new installation neither needs nor fetches one.
+**Máy đang phát triển dùng `bash install.sh --update` để cài cả thay đổi chưa
+push.** Lệnh `cyberlab update` không lấy những thay đổi local đó.
 
-Create a fresh development environment rather than copying another VM's venv:
+Trước khi cập nhật, lưu nội dung đang sửa, đóng Studio và dừng các phiên thực
+hành đúng cách. Bộ cập nhật kiểm tra phiên của mọi tài khoản được phép, có khóa
+chống chạy đồng thời, sao lưu/rollback và xác minh bản cài. Luồng cập nhật thông
+thường không tự đóng cửa sổ, dừng bài, di chuyển kho bài hoặc nâng Qt/Docker.
 
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
+## Dữ liệu và bảo mật
+
+### Vị trí trên máy cài mới
+
+| Nội dung                                             | Đường dẫn                          |
+| ---------------------------------------------------- | ---------------------------------- |
+| Runtime, môi trường Python riêng và metadata bản cài | `/usr/lib/cyberlab/`               |
+| Cấu hình hệ thống                                    | `/etc/cyberlab/`                   |
+| Kho bài                                              | `/var/lib/cyberlab/labs/`          |
+| Bản nháp và trạng thái thực hành                     | `/var/lib/cyberlab/authoring/`     |
+| Tải/build tạm và dữ liệu phục hồi của bộ cài         | Các thư mục riêng dưới `/var/tmp/` |
+
+Tùy chọn giao diện cá nhân và tệp người dùng chủ động xuất có thể nằm trong home.
+Máy cài cũ có kho ở vị trí khác tiếp tục dùng cấu hình đó; cập nhật không tự di
+chuyển hoặc xóa kho cũ.
+
+### Cấu trúc logic của một bài
+
+```text
+<lab-id>/
+├── lab.yaml                   # Định nghĩa bài, máy, mạng và tiêu chí
+└── assets/                    # Tài nguyên do tác giả thêm
+    ├── docs/guide.md          # Hướng dẫn Markdown
+    ├── editor/<node-id>/      # Tệp được tạo/sửa trong cây tài nguyên
+    ├── files/<node-id>/       # Tài nguyên ánh xạ vào máy, tùy bài
+    └── startup/<node-id>/
+        └── start.sh          # Script khởi động nếu được cấu hình
 ```
 
-This installs the Python package in editable mode, not the privileged daemon or
-desktop dependencies. With the daemon and native Quickshell runtime already
-installed, launch the source UI as the ordinary desktop user:
+Đây là cấu trúc để hiểu cách lưu trữ, **không phải hướng dẫn sửa trực tiếp kho
+hệ thống**. Chỉ `lab.yaml` là tệp bắt buộc; các tài nguyên còn lại được tạo khi
+cần. Cây tệp trong trình biên soạn chứa tài nguyên tác giả, không tự đưa các tệp
+phát sinh lúc người học thực hành trở lại mẫu bài.
 
-```sh
+### Phạm vi bảo vệ
+
+- Tài khoản thường thao tác qua daemon; không cần vào nhóm `docker`. Docker
+  socket không được cung cấp cho giao diện hoặc các máy thực hành.
+- Kho hệ thống dùng quyền truy cập riêng của root/daemon: thư mục `0700`, tệp
+  nội bộ `0600`. Đây là bảo vệ bằng phân quyền, **không phải mã hóa dữ liệu tại chỗ**.
+- Mật khẩu sửa bảo vệ thao tác biên soạn bài đã khóa. Nhập và thực hành không
+  yêu cầu mật khẩu sửa; tệp được tác giả đưa vào máy cho người học vẫn đọc được.
+- Gói `.cyberlab` xuất mới dùng định dạng `cyberlab-lab/v3`, không phải ZIP đổi
+  đuôi. Định dạng riêng và checksum giúp tránh giải nén thông thường, phát hiện
+  hỏng dữ liệu; **không phải mã hóa bảo mật mạnh hoặc chữ ký chống giả mạo**.
+- Vẫn nhận gói CyberLab v1/v2; luồng chuyển đổi Labtainer là chức năng riêng,
+  không cam kết tương thích toàn bộ tính năng của Labtainer.
+- Không cam kết che giấu mã nguồn runtime hoặc chống người có quyền root,
+  sửa chương trình hay tự phân tích định dạng gói.
+
+## Cấu trúc mã nguồn
+
+```text
+CyberLab/
+├── engine/          # Mô hình bài, nghiệp vụ, chính sách và runtime adapter
+├── daemon/          # Dịch vụ cyberlabd, API D-Bus và cấu hình dịch vụ
+├── cli/             # Lệnh cyberlab và tích hợp terminal/cập nhật
+├── ui/              # Launcher và Studio QML
+│   └── studio/
+│       ├── services/ # Dịch vụ phía giao diện
+│       ├── views/    # Các màn hình
+│       ├── assets/   # Icon, thương hiệu và font đóng gói
+│       └── testing/  # Kiểm thử giao diện
+├── schemas/         # Schema định nghĩa bài theo phiên bản
+├── tools/           # Cài đặt, cập nhật và các kiểm thử duy trì
+├── docs/            # Tài liệu kỹ thuật và kết quả kiểm chứng
+├── install.sh       # Điểm vào của bộ cài
+└── pyproject.toml   # Khai báo package và dependency Python
+```
+
+Kho bài thật, bản nháp, checkpoint và Docker image **không thuộc repository**.
+Các tài liệu cũ có thể tham chiếu `tests/` hoặc bài mẫu đã được lưu trữ ngoài
+checkout; dùng [danh mục công cụ hiện tại](tools/README.md) để chọn kiểm thử.
+
+## Phát triển và kiểm thử
+
+### Môi trường phát triển
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
 bash tools/run_studio.sh --require-native
 ```
 
-This connects to the real daemon. Save work before changing Sessions or drafts;
-it is not an isolated preview. QML edits use the source tree; Python backend/API
-changes require `bash install.sh --update` so the root daemon always runs
-root-owned installed code, never a user-writable checkout. After `git pull`,
-refresh the development venv with `.venv/bin/python -m pip install -e .` when
-dependencies change. Recreate that venv after a system Python minor-version
-change (especially on rolling-release distributions).
+Môi trường editable chỉ phục vụ phát triển Python, không tự cài daemon đặc
+quyền hay dependency desktop. Lệnh mở Studio từ source kết nối **daemon thật**;
+không dùng nó như môi trường giả lập để thử trên dữ liệu người dùng.
 
-See `docs/quickshell-studio.md` for Studio setup. Installation and
-historical upgrade details are in `docs/install-mvp.md`; do not rerun an initial
-installer on an existing installation without reviewing the current state.
+Thay đổi backend cần build và cập nhật runtime hệ thống bằng
+`bash install.sh --update`. Daemon không chạy mã từ checkout người dùng có thể
+ghi. Đọc [AGENTS.md](AGENTS.md) trước khi thay đổi kiến trúc hoặc chính sách triển khai.
 
-## Repository Hygiene
+### Một số kiểm thử cách ly
 
-The current Lab folder layout and its matching Studio creation workflow are
-defined in `docs/lab-authoring.md` under **Studio authoring contract**. Startup
-scripts are optional and can be written or imported from each machine's Startup
-tab; authors do not need to create those files or wire commands outside Studio.
+Trên máy đã cài runtime, chạy từ thư mục repo:
 
-`tools/` now contains only the maintained installation/development helpers and
-explicit Lab/image validation tools; see `tools/README.md`.
-Old MVP/OVA/AppImage-download/migration tools were archived outside the checkout.
-The test suite and example Labs were archived outside the repository at the
-user's request; they are not part of the runtime package. `.venv/`, `build/`,
-`dist/` and Python caches are local and excluded from Git. Old local artifacts are archived
-under `~/.local/state/cyberlab/development-archives/`; historical `dist/` paths in
-the documentation refer to those local runs, not files included in a Git clone.
+```bash
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_session_state.py
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_assessment_quiz.py
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_result_collection.py
+python3 -B tools/tests/ui/check_notifications.py --suite editor --native
+```
 
-Never commit passwords, keys, tokens, production catalogs, personal drafts or VM
-disk images. Inter's bundled license and provenance are in
-`ui/studio/assets/fonts/`; the locally installed SFMono font is not bundled.
-Do not add users to the Docker group or expose its socket to clients or labs.
-Read `AGENTS.md` before changing architecture, deployment or security policy.
+Không chạy hàng loạt mọi test trong `tools/tests/` mà chưa đọc yêu cầu: một số công cụ
+cần đầu vào riêng, Docker, quyền quản trị hoặc môi trường hiển thị tạm.
+
+| Tầng kiểm thử             | Chứng minh được                                                         | Không thay thế                                |
+| ------------------------- | ----------------------------------------------------------------------- | --------------------------------------------- |
+| Python và runtime giả lập | Logic dữ liệu, hợp đồng API, lỗi và phục hồi trong tình huống mô phỏng. | Container, mạng và phần mềm Linux thật.       |
+| QML cách ly/offscreen     | Component tải được và các tương tác được kiểm thử.                      | Trải nghiệm desktop và độ mượt thực tế.       |
+| Wheel đóng gói            | Module/tài nguyên có trong artifact và các bước kiểm tra bản đóng gói.  | Cài mới trên mọi distro.                      |
+| Kiểm thử xuyên suốt       | Tạo → chạy → chấm → lưu/tiếp tục trong môi trường đã thử.               | Các môi trường chưa có bằng chứng kiểm chứng. |
+
+Chỉ dùng dữ liệu thử riêng. Không lấy catalog, bản nháp hoặc phiên thật làm
+fixture; không đưa secret, bài cá nhân, image máy ảo hay artifact tạm vào Git.
+
+## Tài liệu chuyên sâu
+
+Xem [mục lục tài liệu](docs/README.md): kiến trúc, cài đặt, tạo bài, thực hành,
+đánh giá, chia sẻ bài, Studio và phát triển. Báo cáo kiểm thử lịch sử được
+tách riêng, không trộn vào hướng dẫn hiện hành.

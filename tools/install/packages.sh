@@ -5,6 +5,11 @@ detect_distribution() {
     unset ID ID_LIKE PRETTY_NAME VERSION_ID VERSION_CODENAME UBUNTU_CODENAME
     source /etc/os-release
     distro_name=${PRETTY_NAME:-${ID:-unknown}}
+    classify_distribution
+    command -v "$manager" >/dev/null || fail "Expected package manager: $manager"
+}
+
+classify_distribution() {
     case " ${ID:-} ${ID_LIKE:-} " in
         *' arch '*|*' archlinux '*) family=arch; manager=pacman ;;
         *' debian '*|*' ubuntu '*) family=debian; manager=apt-get ;;
@@ -12,20 +17,19 @@ detect_distribution() {
         *' opensuse '*|*' opensuse-tumbleweed '*|*' opensuse-leap '*|*' suse '*|*' sles '*) family=suse; manager=zypper ;;
         *) fail "No package adapter for $distro_name. Supported families: Arch, Debian/Ubuntu, Fedora, openSUSE (systemd, mutable host)." ;;
     esac
-    command -v "$manager" >/dev/null || fail "Expected package manager: $manager"
 }
 
 configure_packages() {
     case "$family" in
-        arch) host_packages=(python python-pip systemd dbus util-linux qt6-declarative qt6-svg qt6-wayland xpra) ;;
+        arch) host_packages=(python python-pip systemd dbus util-linux qt6-declarative qt6-svg qt6-wayland) ;;
         debian)
-            host_packages=(python3 python3-venv systemd dbus util-linux xpra libqt6svg6 qt6-wayland
+            host_packages=(python3 python3-venv systemd dbus util-linux libqt6svg6 qt6-wayland
                 qml6-module-qtcore qml6-module-qtqml qml6-module-qtqml-models qml6-module-qtqml-workerscript
                 qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtquick-controls
                 qml6-module-qtquick-dialogs qml6-module-qtquick-layouts qml6-module-qtquick-templates
                 qml6-module-qt-labs-folderlistmodel) ;;
-        fedora) host_packages=(python3 python3-pip systemd dbus dbus-tools dbus-daemon util-linux xpra qt6-qtdeclarative qt6-qtsvg qt6-qtwayland) ;;
-        suse) host_packages=(systemd dbus-1 util-linux xpra qt6-declarative-imports libQt6Svg6 qt6-wayland) ;;
+        fedora) host_packages=(python3 python3-pip systemd dbus dbus-tools dbus-daemon util-linux qt6-qtdeclarative qt6-qtsvg qt6-qtwayland) ;;
+        suse) host_packages=(systemd dbus-1 util-linux qt6-declarative-imports libQt6Svg6 qt6-wayland) ;;
     esac
 }
 
@@ -87,6 +91,46 @@ select_python() {
 
 native_quickshell_present() {
     [[ -x /usr/bin/qs || -x /usr/bin/quickshell ]]
+}
+
+native_pkexec_present() {
+    [[ -x /usr/bin/pkexec ]]
+}
+
+collect_gui_package() {
+    local package
+    if package="$(choose_available xpra xpra-client)"; then
+        host_packages+=("$package")
+    else
+        printf '%s\n' 'WARNING: kho hiện tại không có Xpra; vẫn cài được CyberLab nhưng GUI không có đường dự phòng Xpra. Native X11/XWayland cần được kiểm tra trong phiên desktop. Không tự thêm repository bên thứ ba.'
+    fi
+}
+
+collect_update_package() {
+    local package
+    local -a candidates
+    if native_pkexec_present; then return; fi
+    case "$family" in
+        debian) candidates=(pkexec) ;;
+        arch) candidates=(polkit) ;;
+        fedora) candidates=(polkit-pkexec polkit) ;;
+        suse) candidates=(polkit-pkexec polkit polkit-1) ;;
+    esac
+    package="$(choose_available "${candidates[@]}")" || fail 'Không tìm thấy gói cung cấp pkexec để cập nhật bằng giao diện. Chuẩn bị dependency phù hợp; không tự thêm repository.'
+    if package_installed "$package"; then
+        fail "Gói $package đã cài nhưng thiếu /usr/bin/pkexec. Hãy kiểm tra gói hệ thống; CyberLab không tự thay thế bản cài này."
+    fi
+    host_packages+=("$package")
+}
+
+quickshell_install_hint() {
+    local suite=${UBUNTU_CODENAME:-}
+    if [[ ${ID:-} == ubuntu ]]; then suite=${suite:-${VERSION_CODENAME:-}}; fi
+    if [[ $suite == noble ]]; then
+        printf '%s\n' 'Ubuntu 24.04 / Linux Mint 22.x: nguồn Quickshell đã duyệt chưa cung cấp gói tương thích. Không tự thêm PPA thiếu gói hoặc thay Qt hệ thống. Dùng môi trường đã chuẩn bị Quickshell >=0.3.1 tương thích, hoặc xem các phiên bản được kiểm chứng trong docs/installation/README.md.'
+    else
+        printf '%s\n' "No native quickshell package in the enabled repositories for $distro_name. Review bash install.sh --plan --enable-quickshell-repo for an explicit native-source option, or enable a compatible repository yourself. No AppImage fallback or repository changes were made."
+    fi
 }
 
 package_version() {
@@ -190,6 +234,8 @@ collect_native_packages() {
     printf 'Checking native packages for %s...\n' "$distro_name"
     check_python_candidate
     collect_terminal_package
+    collect_update_package
+    collect_gui_package
     if [[ $family == debian ]] && package_available qt6-svg-plugins; then
         host_packages+=(qt6-svg-plugins)
     fi
@@ -210,14 +256,14 @@ collect_native_packages() {
     if native_quickshell_present; then
         bootstrap_python="$(command -v python3 || true)"
         if [[ -n $bootstrap_python ]] && "$bootstrap_python" -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
-            if ! "$bootstrap_python" -B -I "$ROOT/tools/runtime_admin.py" --user "$desktop_user" native-version; then
+            if ! "$bootstrap_python" -B -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user" native-version; then
                 [[ $allow_dependency_upgrades == yes ]] || fail 'The installed native Quickshell is incompatible. No host packages were changed. Review --plan --allow-dependency-upgrades before upgrading its dependencies.'
                 package_installed quickshell || fail 'The incompatible Quickshell is not the stable distro package; repair that installation explicitly. Custom/git runtimes will not be replaced.'
                 refresh_quickshell=yes
             fi
         fi
     else
-        package_available quickshell || fail "No native quickshell package in the enabled repositories for $distro_name. Review bash install.sh --plan --enable-quickshell-repo for an explicit native-source option, or enable a compatible repository yourself. No AppImage fallback or repository changes were made."
+        package_available quickshell || fail "$(quickshell_install_hint)"
         host_packages+=(quickshell)
     fi
     select_docker_packages
@@ -234,9 +280,13 @@ collect_native_packages() {
     missing_packages+=("${forced_packages[@]}")
 }
 
-install_native_packages() {
-    if [[ $family == debian ]]; then apt-get update; fi
+refresh_native_metadata() {
+    if [[ $family == debian ]]; then apt-get update --error-on=any; fi
     if [[ $family == suse ]]; then zypper --non-interactive refresh; fi
+}
+
+install_native_packages() {
+    refresh_native_metadata
     collect_native_packages
     if ((${#missing_packages[@]} == 0)); then
         printf '%s\n' 'Native dependencies are already installed.'

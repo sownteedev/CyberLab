@@ -58,7 +58,7 @@ transaction_records() {
             ;;
         fedora)
             if [[ -f $output.transaction/transaction.json ]]; then
-                python3 -B -I "$ROOT/tools/runtime_admin.py" --user "$desktop_user" dnf-plan --manifest "$output.transaction/transaction.json"
+                python3 -B -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user" dnf-plan --manifest "$output.transaction/transaction.json"
                 return
             fi
             awk '

@@ -14,12 +14,13 @@ configure_quickshell_repository() {
             if [[ ${ID:-} == ubuntu || -n ${UBUNTU_CODENAME:-} ]]; then
                 repository_suite=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
                 [[ $repository_suite =~ ^[a-z]+$ ]] || fail 'Cannot determine the Ubuntu base codename safely.'
+                [[ $repository_suite != noble ]] || fail "$(quickshell_install_hint)"
                 repository_url=https://ppa.launchpadcontent.net/avengemedia/danklinux/ubuntu
                 repository_component=main
                 repository_fingerprint=45FECBE587307AAA3F0A4BE9FC44813D2A7788B7
                 repository_key_url="https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$repository_fingerprint"
             elif [[ ${ID:-} == debian && ${VERSION_ID:-} == 13 ]]; then
-                repository_url=https://download.opensuse.org/repositories/home:/AvengeMedia:/danklinux/Debian_13
+                repository_url=https://downloadcontent.opensuse.org/repositories/home:/AvengeMedia:/danklinux/Debian_13
                 repository_suite=/
                 repository_component=
                 repository_fingerprint=20CA3E5804CA75009B3671A4284778483BC86115
@@ -75,6 +76,7 @@ enable_quickshell_repository() {
     if [[ -e $repository_destination || -L $repository_destination ]]; then
         printf 'Existing %s will be checked, never overwritten.\n' "$repository_destination"
     fi
+    refresh_native_metadata
     missing_packages=()
     case "$family" in
         debian) repository_tools=(ca-certificates curl gnupg) ;;

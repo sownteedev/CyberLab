@@ -1,0 +1,64 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const context = vm.createContext({});
+const source = path.join(__dirname, '../../../ui/studio/models/AccountModel.js');
+vm.runInContext(fs.readFileSync(source, 'utf8').replace(/^\.pragma library\s*/, ''), context);
+const node = {id: 'desktop', user: {name: 'student', uid: 2000, gid: 2000},
+    setup: {files: [{source: 'assets/a', target: '/srv/a', owner: 'student', group: 'student', mode: '0644'}]}};
+assert.equal(context.validPassword('é'.repeat(64)), true);
+for (const password of ['', '\ud800', 'a\nb', 'x'.repeat(129), 'é'.repeat(65)])
+    assert.equal(context.validPassword(password), false);
+let next = context.addUser(node, 'alice');
+assert.equal(next.setup.users[0].uid, 3000);
+assert.equal(next.setup.users[0].gid, 3000);
+assert.equal(next.setup.users[0].password_hash, '!');
+assert.equal(next.setup.users[0].sudo, 'disabled');
+assert.equal(node.setup.users, undefined);
+next = context.addGroup(next, 'team');
+assert.equal(next.setup.groups[0].gid, 3001);
+next = context.addUser(next, 'bob');
+assert.equal(next.setup.users[1].uid, 3002);
+assert.equal(next.setup.users[0].uid, 3000);
+assert.equal(next.setup.files[0].source, 'assets/a');
+for (const name of ['alice', 'team', 'root', 'student', 'sudo', 'bad name', 'A', 'x'.repeat(33)])
+    assert.throws(() => context.addUser(next, name));
+next = context.setGroups(next, 'alice', ['team']);
+assert.throws(() => context.removeGroup(next, 'team'));
+assert.throws(() => context.renameGroup(next, 'team', 'staff'));
+assert.throws(() => context.setGroups(next, 'alice', ['missing']));
+assert.throws(() => context.setGroups(next, 'alice', ['root']));
+assert.throws(() => context.setGroups(next, 'alice', ['team', 'team']));
+next.setup.home = [{path: 'notes', owner: 'alice', group: 'alice', mode: '0644'}];
+assert.throws(() => context.removeUser(next, 'alice'));
+assert.throws(() => context.renameUser(next, 'alice', 'ally'));
+assert.throws(() => context.removeUser(next, 'student'));
+assert.throws(() => context.renameMain(next, 'newmain'));
+next.setup.home = [];
+next = context.removeUser(next, 'alice');
+next = context.removeGroup(next, 'team');
+next = context.renameUser(next, 'bob', 'bobby');
+assert.equal(next.setup.users[0].uid, 3002);
+next = context.renameUser(next, 'bobby', 'bob');
+next = context.addGroup(next, 'team');
+const stableGid = next.setup.groups[0].gid;
+next = context.renameGroup(next, 'team', 'staff');
+assert.equal(next.setup.groups[0].gid, stableGid);
+next = context.removeGroup(next, 'staff');
+assert.equal(next.setup.users[0].name, 'bob');
+assert.equal(next.setup.users[0].uid, 3002);
+next = context.setSudo(next, 'bob', 'password');
+assert.equal(next.setup.users[0].sudo, 'password');
+assert.throws(() => context.setSudo(next, 'bob', 'root'));
+next = context.setSudo(next, 'student', 'disabled');
+assert.equal(next.setup.sudo, 'disabled');
+const full = JSON.parse(JSON.stringify(node));
+for (let index = 0; index < 32; index++) {
+    Object.assign(full, context.addUser(full, 'user' + index));
+    Object.assign(full, context.addGroup(full, 'group' + index));
+}
+assert.throws(() => context.addUser(full, 'overflow'));
+assert.throws(() => context.addGroup(full, 'overflow'));
+assert.equal(new Set(full.setup.users.map(user => user.uid)).size, 32);
+console.log('Account model: bounded identities, stable IDs, defaults, memberships and references passed');

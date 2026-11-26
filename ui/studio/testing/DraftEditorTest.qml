@@ -174,6 +174,26 @@ Item {
                 const groups = checks.service.document.quizzes;
                 verify(groups[groups.length - 1].pre_start);
             }
+            function test_first_quiz_group_does_not_save_empty_placeholder() {
+                checks.service.section = 6;
+                settle();
+                control("labeditCategory").selected(2);
+                settle();
+                control("addQuizGroup").clicked();
+                compare(checks.service.document.quizzes.length, 1);
+                control("addQuizQuestion-0").clicked();
+                compare(checks.service.document.quizzes[0].items.length, 1);
+            }
+            function test_adding_quiz_group_preserves_existing_groups() {
+                const question = {id: "old", type: "choice", question: "Keep", options: ["A", "B"], answer: 1};
+                checks.service.changePath(["quiz"], [question]);
+                checks.service.addQuizGroup({id: "new", pre_start: true, items: []}, 8);
+                compare(checks.service.document.quizzes.length, 2);
+                compare(checks.service.document.quizzes[0].items[0], question);
+                checks.service.addQuizGroup({id: "next", pre_start: true, items: []}, 8);
+                compare(checks.service.document.quizzes.length, 3);
+                compare(checks.service.document.quizzes[1].id, "new");
+            }
             function test_legacy_quiz_stays_optional_on_open_and_edit() {
                 const document = checks.service.document;
                 document.quiz = [{id: "old", type: "choice", question: "Old question", options: ["A", "B"], answer: 1}];

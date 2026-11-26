@@ -39,6 +39,12 @@ select_docker_packages() {
         fail 'A custom Docker CLI exists outside /usr/bin/docker. Install a compatible system Docker package explicitly; CyberLab will not replace your custom setup.'
     fi
     if [[ $unit_state == loaded ]]; then
+        if ! docker_cli_present && [[ $family == debian ]] && package_installed docker.io &&
+                ! package_installed docker-cli && package_available docker-cli; then
+            docker_packages=(docker-cli)
+            printf '%s\n' 'Completing the distro Docker Engine with its separate docker-cli package; no provider replacement.'
+            return
+        fi
         docker_cli_present || fail 'docker.service exists but /usr/bin/docker is missing. Repair that installation without replacing its provider.'
         printf '%s\n' 'Reusing the existing system Docker Engine; no Docker package replacement.'
         return
@@ -63,4 +69,7 @@ select_docker_packages() {
     esac
     package_available "$package" || fail "Docker Engine package unavailable: $package"
     docker_packages=("$package")
+    if [[ $family == debian && $package == docker.io ]] && package_available docker-cli; then
+        docker_packages+=(docker-cli)
+    fi
 }

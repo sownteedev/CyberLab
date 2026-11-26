@@ -1,53 +1,26 @@
-# Technical Documentation
+# Tài liệu CyberLab
 
-Start with the architecture and installation guides. The remaining files describe
-active contracts, workflows and explicit limitations, not development progress.
+Tài liệu được tổ chức theo **8 chủ đề**. Bắt đầu từ hướng dẫn chính của chủ đề;
+chỉ mở phần tra cứu khi cần chi tiết kỹ thuật.
 
-The optional test suite and example Labs are not shipped in this checkout.
-References to regression test files or old sample-based verification in feature
-notes describe the archived development kit, not commands available after a
-fresh clone. Use the installation guide for current install/update commands;
-legacy MVP/demo/OVA tools have also been archived outside the checkout. They
-must not substitute the production catalog for missing fixtures.
-
-## Architecture and Operation
-
-| Guide | Contents |
+| Chủ đề | Nội dung |
 | --- | --- |
-| [Engine boundaries](engine-package-boundaries.md) | Components, dependencies and data ownership. |
-| [Installation](install-mvp.md) | Host prerequisites, launchers and guarded runtime updates. |
-| [Studio](quickshell-studio.md) | Library, practice and basic Lab editing. |
-| [Studio source](studio-structure.md) | QML components, responsive layout, fonts and packaging. |
-| [External catalog](external-lab-catalog.md) | Persistent Labs outside the source repository. |
+| [Kiến trúc](architecture/README.md) | Các tầng, luồng xử lý, dữ liệu và ranh giới quyền |
+| [Cài đặt và cập nhật](installation/README.md) | Cài qua link/checkout, cập nhật, rollback và [nền tảng hỗ trợ](installation/platforms.md) |
+| [Tạo bài](authoring/README.md) | Bản nháp, tệp, hướng dẫn, xuất bản; [máy, mạng và phần mềm](authoring/machines.md) |
+| [Thực hành](practice/README.md) | Terminal, lưu/tiếp tục/reset và [hiển thị GUI](practice/display-security.md) |
+| [Đánh giá](assessment/README.md) | Quiz, Checkwork, nộp bài và [tham chiếu Result–Goal](assessment/results-goals.md) |
+| [Chia sẻ bài](distribution/README.md) | Nhập/xuất, Labtainer, mật khẩu sửa và [định dạng gói](distribution/package-format.md) |
+| [Studio](studio/README.md) | Tổ chức QML, component, theme và quy ước UX |
+| [Phát triển](development/README.md) | Chạy source, chọn test an toàn và nghiệm thu trước phát hành |
 
-## Labs and Sessions
+## Đọc theo nhu cầu
 
-| Guide | Contents |
-| --- | --- |
-| [Authoring](lab-authoring.md) | Private drafts, assets, revisions and publication. |
-| [Home files](home-file-placement.md) | Template assets and their destinations in each node. |
-| [Documents and imports](documents-imports.md) | Instructions and bounded workspace transfers. |
-| [Networks and terminals](network-terminal-configuration.md) | Private networks, addresses, DNS and terminal slots. |
-| [Node environments](node-environments.md) | Accounts, shells, hostnames and image constraints. |
-| [Terminal windows](terminal-windows.md) | Opening, attaching and closing configured terminals. |
-| [Saved practice](saved-practice.md) | Checkpoints, suspend/resume and destructive reset. |
-| [Lab deletion](lab-deletion.md) | Confirmation, authorization and active-Session guards. |
-| [Lab packages](lab-packages.md) | Bounded import/export and Labtainer conversion limits. |
+- **Cài để sử dụng:** Cài đặt → Thực hành.
+- **Biên soạn bài:** Tạo bài → Đánh giá → Chia sẻ bài.
+- **Phát triển ứng dụng:** Kiến trúc → Studio → Phát triển.
 
-## Optional Features and Limits
-
-| Guide | Contents |
-| --- | --- |
-| [Checkwork](checkwork-and-quiz.md) | Self-checks, evidence and submission workflows. |
-| [Quiz](lab-quiz.md) | Groups, attempts and pre-start preparation gates. |
-| [Parameters](parameterization.md) | Deterministic values and substitutions. |
-| [Results and goals](results-goals-parity.md) | Supported operators and evaluation boundaries. |
-| [Labedit inventory](labedit-parity.md) | Full feature inventory and known gaps. |
-| [Remaining work](labedit-completion-plan.md) | Unfinished behavior and required acceptance gates. |
-| [Offline packaging](offline-images-and-studio.md) | Historical image/OVA design; old release tools are archived, not the current installer. |
-
-The authoritative definition schema is
-[`schemas/v1/lab.schema.json`](../schemas/v1/lab.schema.json). Shared D-Bus method
-signatures are in
-[`daemon/cyberlab_ipc/org.ptit.CyberLab1.xml`](../daemon/cyberlab_ipc/org.ptit.CyberLab1.xml).
-Development and security constraints remain in [`AGENTS.md`](../AGENTS.md).
+Schema chính thức nằm ở [`lab.schema.json`](../schemas/v1/lab.schema.json),
+chữ ký API ở [`org.ptit.CyberLab1.xml`](../daemon/cyberlab_ipc/org.ptit.CyberLab1.xml).
+Các báo cáo kiểm thử và kế hoạch cũ nằm riêng trong [lưu trữ](archive/README.md),
+không phải hướng dẫn cài đặt hay bằng chứng cho mọi môi trường.

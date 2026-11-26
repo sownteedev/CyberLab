@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+from urllib.error import HTTPError
 
 REPOSITORY = "sownteedev/CyberLab"
 BRANCH = "master"
@@ -77,6 +78,26 @@ def installed_commit(path=None):
         return commit if valid_commit(commit) else None
     except (OSError, ValueError, AttributeError):
         return None
+
+def compare_commits(current, latest):
+    if current is None:
+        return "unknown"
+    if current == latest:
+        return "identical"
+    import io
+    output = io.BytesIO()
+    try:
+        download(f"https://api.github.com/repos/{REPOSITORY}/compare/{current}...{latest}?per_page=1", output, 4 * 1024 * 1024)
+    except HTTPError as error:
+        if error.code == 404:
+            error.close()
+            return "unknown"
+        raise
+    document = json.loads(output.getvalue())
+    status = document.get("status") if isinstance(document, dict) else None
+    if status not in {"ahead", "behind", "diverged"}:
+        raise ValueError("GitHub không trả về kết quả so sánh commit hợp lệ")
+    return status
 
 
 @contextmanager
@@ -243,8 +264,9 @@ def run_update(check=False, *, json_output=False, commit=None, graphical=False):
             raise ValueError("Commit cập nhật không hợp lệ")
         current = installed_commit()
         latest = commit or latest_commit()
+        comparison = compare_commits(current, latest)
         if check and json_output:
-            report("checked", installed=current, latest=latest, available=current is not None and current != latest)
+            report("checked", installed=current, latest=latest, comparison=comparison, available=comparison == "ahead")
             return 0
         if current == latest:
             if json_output:
@@ -255,11 +277,17 @@ def run_update(check=False, *, json_output=False, commit=None, graphical=False):
         if not json_output:
             print(f"Đang cài: {current[:12] if current else 'chưa xác định commit'}. Bản trên master: {latest[:12]}.")
         if check:
-            if current is None:
-                print("Chưa thể xác định có bản mới: bản cài chưa ghi nhận commit. Bản cài chưa thay đổi.")
+            if comparison == "unknown":
+                print("Chưa thể xác định có bản mới: chưa so sánh được commit đã cài. Bản cài chưa thay đổi.")
+            elif comparison == "behind":
+                print("Bản cài đang đi trước master. Không cần cập nhật.")
+            elif comparison == "diverged":
+                print("Bản cài và master có lịch sử khác nhau. Không tự thay thế bản cài.")
             else:
                 print("Chạy cyberlab update để cập nhật; bản cài chưa thay đổi.")
             return 0
+        if current is not None and comparison != "ahead":
+            raise ValueError("Không cập nhật: chưa xác nhận đây là commit mới hơn bản đang cài. Không tự hạ phiên bản hoặc thay nhánh.")
         if json_output or graphical:
             code = install_snapshot(latest, ("--update",), progress=report if json_output else None, graphical=graphical)
             if code:

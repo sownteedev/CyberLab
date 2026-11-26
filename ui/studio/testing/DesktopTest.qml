@@ -7,7 +7,7 @@ Item {
     id: checks
 
     property string screenshotFolder: ""
-    readonly property var fixture: ({id: "fixture-session", state: "RUNNING", desktop_nodes: ["client"], nodes: [["client", []]], environments: [["client", "client", "student", 2000, 2000, "/home/student", "/bin/bash"]]})
+    readonly property var fixture: ({id: "fixture-session", state: "RUNNING", desktop_nodes: ["client"], gui_backends: {client: "xpra"}, nodes: [["client", []]], environments: [["client", "client", "student", 2000, 2000, "/home/student", "/bin/bash"]]})
 
     QtObject {
         id: api
@@ -112,6 +112,12 @@ Item {
                 compare(api.calls.length, 1);
                 verify(api.error.includes("Xpra"));
                 verify(!confirmation().opened);
+            }
+            function test_native_and_unresolved_backends_hide_reconnect() {
+                for (const backend of ["native-x11", ""]) {
+                    card.session = Object.assign({}, checks.fixture, {gui_backends: {client: backend}});
+                    verify(!button().visible);
+                }
             }
             function test_capability_and_state_guards() {
                 card.desktopSupported = false;

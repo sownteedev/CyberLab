@@ -13,6 +13,7 @@ Item {
         property bool handingOff: false
         property bool available: false
         property bool checked: false
+        property string comparison: "unknown"
         property string installedCommit: ""
         property string latestCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         property string problem: ""
@@ -37,6 +38,7 @@ Item {
                 updater.checking = false; updater.handingOff = false; updater.available = false;
                 updater.checked = false; updater.problem = ""; updater.calls = 0;
                 updater.installedCommit = "";
+                updater.comparison = "unknown";
                 settings.visible = true; progress.visible = false;
                 progress.running = true; progress.completed = false; progress.problem = "";
                 progress.percent = -1; progress.received = 0; progress.phase = "waiting";
@@ -50,6 +52,8 @@ Item {
             }
             function test_available_and_handoff() {
                 updater.available = true;
+                updater.installedCommit = "b".repeat(40);
+                updater.comparison = "ahead";
                 const button = findChild(settings, "installSystemUpdate");
                 verify(button.visible);
                 updater.handingOff = true;
@@ -64,6 +68,20 @@ Item {
                 updater.checked = true;
                 updater.installedCommit = updater.latestCommit;
                 compare(findChild(settings, "updateStatus").text, "Bạn đang dùng bản mới nhất");
+            }
+            function test_non_forward_versions_data() {
+                return [{tag: "ahead-local", state: "behind", title: "Bản cài đi trước GitHub"},
+                    {tag: "diverged", state: "diverged", title: "Bản cài khác nhánh GitHub"},
+                    {tag: "unpublished", state: "unknown", title: "Chưa xác định phiên bản"}];
+            }
+            function test_non_forward_versions(data) {
+                updater.checked = true;
+                updater.installedCommit = "b".repeat(40);
+                updater.comparison = data.state;
+                compare(findChild(settings, "updateStatus").text, data.title);
+                verify(!findChild(settings, "installSystemUpdate").visible);
+                wait(50);
+                if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/update-state-" + data.tag + ".png");
             }
             function test_progress_only_measured_for_download() {
                 progress.acceptEvent({event: "download", percent: 42});
@@ -102,6 +120,8 @@ Item {
             function test_visuals(data) {
                 Studio.Theme.themeMode = data.mode; window.width = data.width;
                 updater.available = true;
+                updater.installedCommit = "b".repeat(40);
+                updater.comparison = "ahead";
                 wait(50);
                 if (checks.screenshotFolder) grabImage(window.contentItem).save(checks.screenshotFolder + "/update-settings-" + data.tag + ".png");
                 settings.visible = false; progress.visible = true;
@@ -114,6 +134,8 @@ Item {
             function test_settings_update_tab(data) {
                 window.width = data.width;
                 updater.available = true;
+                updater.installedCommit = "b".repeat(40);
+                updater.comparison = "ahead";
                 settingsDialog.sectionIndex = 4;
                 settingsDialog.open();
                 tryCompare(settingsDialog, "opened", true);

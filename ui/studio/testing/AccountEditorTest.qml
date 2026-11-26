@@ -46,7 +46,7 @@ Item {
         }
         TestCase {
             name: "AccountEditor"
-            when: window.visible
+            when: windowShown
             function init() {
                 const manager = findChild(panel, "accountManagerDialog");
                 if (manager) {
@@ -74,6 +74,7 @@ Item {
                 service.localError = "";
                 notices.errorToast.dismiss(false);
                 wait(0);
+                verify(waitForPolish(window));
             }
             function result() {
                 return {id: "fixture", revision: 3, digest: "new", assets: [], definition: service.definition};
@@ -99,7 +100,7 @@ Item {
                 return input;
             }
             function test_collapsed_defaults_and_add_user() {
-                const toggle = findChild(panel, "extraAccountsToggle");
+                const toggle = control("extraAccountsToggle");
                 verify(toggle);
                 const manager = findChild(panel, "accountManagerDialog");
                 verify(manager !== null);

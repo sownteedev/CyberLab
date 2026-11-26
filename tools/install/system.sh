@@ -106,7 +106,7 @@ if [[ $mode != check ]]; then
     flock -n 9 || fail 'Another CyberLab installation/update is active; wait for its result instead of running twice.'
 fi
 if command -v python3 >/dev/null && python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
-    python3 -B -I "$ROOT/tools/runtime_admin.py" --user "$desktop_user" account
+    python3 -B -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user" account
 fi
 
 if [[ $mode == install ]]; then
@@ -125,7 +125,7 @@ if [[ $dependencies == yes ]]; then
 fi
 python="$(select_python)" || fail 'Python 3.12+ with venv/ensurepip is required; use a supported release. The installer will not replace system Python.'
 printf 'Desktop account: %s (UID %s); Python: %s\n' "$desktop_user" "$desktop_uid" "$python"
-admin=("$python" -I "$ROOT/tools/runtime_admin.py" --user "$desktop_user")
+admin=("$python" -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user")
 if [[ $mode == update ]]; then
     "${admin[@]}" check --backend-only
 elif [[ $mode == install || $mode == deps-only ]]; then

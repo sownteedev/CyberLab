@@ -386,6 +386,8 @@ function quizEntries(document) {
 
 function addQuizGroup(document, entry, limit) {
     const copy = migrateQuizGroups(document);
+    if (!Array.isArray(document.quizzes) && !(document.quiz || []).length)
+        copy.quizzes = [];
     if (copy.quizzes.length >= limit) throw new Error("Đã đạt giới hạn bộ Quiz.");
     identifier(entry.id, copy.quizzes, "");
     copy.quizzes.push(clone(entry));
