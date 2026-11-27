@@ -20,6 +20,15 @@ classify_distribution() {
 }
 
 configure_packages() {
+    if [[ ${gui_runtime:-native} == private ]]; then
+        host_packages=(python3 python3-venv systemd dbus util-linux ca-certificates curl
+            cmake ninja-build g++ pkg-config p7zip-full patchelf libcli11-dev libdrm-dev
+            libjemalloc-dev libgl-dev libegl-dev libopengl-dev libvulkan-dev
+            libxkbcommon-dev libfontconfig1 libfreetype6 libx11-xcb1 libxcb-cursor0
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 libxcb-shape0
+            libxkbcommon-x11-0 libwayland-client0 libwayland-cursor0 libwayland-egl1)
+        return
+    fi
     case "$family" in
         arch) host_packages=(python python-pip systemd dbus util-linux qt6-declarative qt6-svg qt6-wayland) ;;
         debian)
@@ -90,7 +99,25 @@ select_python() {
 }
 
 native_quickshell_present() {
-    [[ -x /usr/bin/qs || -x /usr/bin/quickshell ]]
+    [[ -x /usr/bin/qs || -x /usr/bin/quickshell || -x /usr/local/bin/qs || -x /usr/local/bin/quickshell ]]
+}
+
+private_quickshell_present() {
+    [[ -e /usr/lib/cyberlab/gui-runtime || -L /usr/lib/cyberlab/gui-runtime ]]
+}
+
+private_runtime_supported() {
+    local suite=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
+    [[ ${family:-} == debian && $suite == noble && $(uname -m) == x86_64 ]]
+}
+
+select_gui_runtime() {
+    gui_runtime=native
+    if private_quickshell_present; then
+        gui_runtime=private
+    elif ! native_quickshell_present && ! package_available quickshell && private_runtime_supported; then
+        gui_runtime=private
+    fi
 }
 
 native_pkexec_present() {
@@ -127,7 +154,7 @@ quickshell_install_hint() {
     local suite=${UBUNTU_CODENAME:-}
     if [[ ${ID:-} == ubuntu ]]; then suite=${suite:-${VERSION_CODENAME:-}}; fi
     if [[ $suite == noble ]]; then
-        printf '%s\n' 'Ubuntu 24.04 / Linux Mint 22.x: nguồn Quickshell đã duyệt chưa cung cấp gói tương thích. Không tự thêm PPA thiếu gói hoặc thay Qt hệ thống. Dùng môi trường đã chuẩn bị Quickshell >=0.3.1 tương thích, hoặc xem các phiên bản được kiểm chứng trong docs/installation/README.md.'
+        printf '%s\n' 'Ubuntu 24.04 / Linux Mint 22.x: chưa có đường cài tự động Quickshell được xác minh cho máy này. Cài lại hoặc thêm PPA thiếu gói không khắc phục được. Build thủ công theo upstream cần Qt >=6.6 và private headers khớp ABI; installer không thay Qt hệ thống. Xem https://quickshell.org/docs/v0.3.2/guide/install-setup/ và docs/installation/platforms.md.'
     else
         printf '%s\n' "No native quickshell package in the enabled repositories for $distro_name. Review bash install.sh --plan --enable-quickshell-repo for an explicit native-source option, or enable a compatible repository yourself. No AppImage fallback or repository changes were made."
     fi
@@ -217,7 +244,8 @@ choose_available() {
 print_package_plan() {
     printf 'Distro: %s\nPackage manager: %s\n' "$distro_name" "$manager"
     printf 'Base packages: %s\n' "${host_packages[*]}"
-    printf '%s\n' 'Quickshell: native package quickshell (not quickshell-git or an AppImage).' \
+    printf 'GUI provider: %s\n' "${gui_runtime:-native}"
+    printf '%s\n' 'Quickshell: native package, or pinned private runtime on supported Ubuntu 24.04 x86_64 bases.' \
         'Docker: existing engine, otherwise docker.io / moby-engine / docker by distro.' \
         'Python: >=3.12 with venv; openSUSE selects an available python3XX + pip pair.' \
         'Python libraries: isolated venv via pip, never pip into the system Python.' \
@@ -236,7 +264,7 @@ collect_native_packages() {
     collect_terminal_package
     collect_update_package
     collect_gui_package
-    if [[ $family == debian ]] && package_available qt6-svg-plugins; then
+    if [[ $family == debian && ${gui_runtime:-native} != private ]] && package_available qt6-svg-plugins; then
         host_packages+=(qt6-svg-plugins)
     fi
     if [[ $family == fedora && $allow_dependency_upgrades == yes ]]; then
@@ -253,7 +281,9 @@ collect_native_packages() {
             [[ ${host_packages[*]} == *python* ]] || fail 'Enabled openSUSE repositories need Python >=3.12 and its pip package.'
         fi
     fi
-    if native_quickshell_present; then
+    if [[ ${gui_runtime:-native} == private ]]; then
+        printf '%s\n' 'GUI: Qt 6.10.3 + Quickshell 0.3.2 riêng, không thay Qt hệ thống; build không đặc quyền, cần 5 GiB tạm.'
+    elif native_quickshell_present; then
         bootstrap_python="$(command -v python3 || true)"
         if [[ -n $bootstrap_python ]] && "$bootstrap_python" -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
             if ! "$bootstrap_python" -B -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user" native-version; then
@@ -287,6 +317,10 @@ refresh_native_metadata() {
 
 install_native_packages() {
     refresh_native_metadata
+    forced_packages=()
+    check_python_candidate
+    select_gui_runtime
+    ensure_quickshell_source
     collect_native_packages
     if ((${#missing_packages[@]} == 0)); then
         printf '%s\n' 'Native dependencies are already installed.'
@@ -301,5 +335,8 @@ install_native_packages() {
             missing_packages=("${host_packages[@]}")
             guarded_package_install
         fi
+    fi
+    if [[ ${gui_runtime:-native} == private ]] && ! private_quickshell_present; then
+        "$(select_python)" -B -I "$ROOT/tools/install/private_runtime.py" --user "$desktop_user" --lock-fd 9
     fi
 }

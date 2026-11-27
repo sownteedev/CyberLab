@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "qt": "6.10.3",
+  "quickshell": "0.3.2",
+  "architecture": "x86_64",
+  "downloads": [
+    {
+      "name": "qtshadertools-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6103/qt6_6103/qt.qt6.6103.addons.qtshadertools.linux_gcc_64/6.10.3-0-202603310406qtshadertools-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "sha256": "49b75b377055f81b11d8c38d31b479313cbfb46129ecd3ce9ef5ee49784300a8",
+      "size": 1596414
+    },
+    {
+      "name": "qtbase-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6103/qt6_6103/qt.qt6.6103.linux_gcc_64/6.10.3-0-202603310406qtbase-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "sha256": "3c12871c69f5350c82a9f04e9a064fc78953008dfa93278a58ebcc622cf401a8",
+      "size": 26106261
+    },
+    {
+      "name": "qtsvg-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6103/qt6_6103/qt.qt6.6103.linux_gcc_64/6.10.3-0-202603310406qtsvg-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "sha256": "0993f77ab7efe07df87857cdaefd313759d0fef2949b076b88e92a300d3c6742",
+      "size": 292176
+    },
+    {
+      "name": "qtdeclarative-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6103/qt6_6103/qt.qt6.6103.linux_gcc_64/6.10.3-0-202603310406qtdeclarative-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "sha256": "098a985c49c3fe819f1baeb881671fa0310aff2a18f5716a8d47a0ca454d8ff1",
+      "size": 117189831
+    },
+    {
+      "name": "qtwayland-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6103/qt6_6103/qt.qt6.6103.linux_gcc_64/6.10.3-0-202603310406qtwayland-Linux-RHEL_9_4-GCC-Linux-RHEL_9_4-X86_64.7z",
+      "sha256": "e1b74b283d0f810e852526018c883d98869e8f48a6e66d8d3296039d5f704c17",
+      "size": 129591
+    },
+    {
+      "name": "icu-linux-Rhel8.6-x86_64.7z",
+      "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6103/qt6_6103/qt.qt6.6103.linux_gcc_64/6.10.3-0-202603310406icu-linux-Rhel8.6-x86_64.7z",
+      "sha256": "513830e56495b5a5d4b74e7b9ec861906cf0938fa5a8b79d08e097d41011eb6c",
+      "size": 9660627
+    },
+    {
+      "name": "quickshell.tar.gz",
+      "url": "https://codeload.github.com/quickshell-mirror/quickshell/tar.gz/refs/tags/v0.3.2",
+      "sha256": "946a27e2a276917a03c1079e5c60971af84ece73088c3661dee455d92eb420f7",
+      "size": 500985
+    }
+  ]
+}

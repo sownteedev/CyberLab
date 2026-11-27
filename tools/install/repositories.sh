@@ -14,7 +14,6 @@ configure_quickshell_repository() {
             if [[ ${ID:-} == ubuntu || -n ${UBUNTU_CODENAME:-} ]]; then
                 repository_suite=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
                 [[ $repository_suite =~ ^[a-z]+$ ]] || fail 'Cannot determine the Ubuntu base codename safely.'
-                [[ $repository_suite != noble ]] || fail "$(quickshell_install_hint)"
                 repository_url=https://ppa.launchpadcontent.net/avengemedia/danklinux/ubuntu
                 repository_component=main
                 repository_fingerprint=45FECBE587307AAA3F0A4BE9FC44813D2A7788B7
@@ -53,6 +52,59 @@ configure_quickshell_repository() {
     esac
 }
 
+verify_quickshell_repository() {
+    [[ $repository_format == apt ]] || return 0
+    local architecture
+    architecture="$(dpkg --print-architecture)" || fail 'Cannot identify the APT architecture.'
+    command -v python3 >/dev/null || fail 'Python 3 is required for the read-only Quickshell source check.'
+    if ! python3 -B -I "$ROOT/tools/install/quickshell_source.py" \
+        --base "$repository_url" --suite "$repository_suite" --architecture "$architecture"; then
+        fail "$(quickshell_install_hint)"
+    fi
+}
+
+confirm_quickshell_repository() {
+    local answer
+    printf 'Nguồn ngoài cần chấp thuận: %s\nFingerprint: %s\n' "$repository_url" "$repository_fingerprint"
+    [[ -t 0 ]] || fail 'Không có terminal tương tác. Xem --plan --enable-quickshell-repo rồi dùng --enable-quickshell-repo nếu chấp thuận nguồn. --yes không cấp quyền thêm nguồn.'
+    printf 'Thêm nguồn Quickshell này? [y/N] '
+    read -r answer || fail 'Đã hủy thêm nguồn Quickshell.'
+    [[ $answer == y || $answer == Y || $answer == yes ]] || fail 'Đã hủy; không thêm nguồn Quickshell.'
+}
+
+ensure_quickshell_source() {
+    [[ ${mode:-install} == install || ${mode:-install} == deps-only ]] || return 0
+    [[ ${gui_runtime:-native} != private ]] || return 0
+    native_quickshell_present && return 0
+    package_available quickshell && return 0
+    if [[ ${enable_quickshell_repo:-no} != yes ]]; then
+        configure_quickshell_repository
+        [[ -n $repository_format ]] || fail "$(quickshell_install_hint)"
+        verify_quickshell_repository
+        confirm_quickshell_repository
+    fi
+    enable_quickshell_repository
+    refresh_native_metadata
+    package_available quickshell || fail 'Nguồn đã thêm nhưng chưa có candidate Quickshell. Giữ log để kiểm tra; không cài gói từ distro khác.'
+}
+
+preflight_native_install() {
+    [[ ${dependencies:-no} == yes ]] || return 0
+    [[ ${mode:-install} == install || ${mode:-install} == deps-only ]] || return 0
+    native_quickshell_present && return 0
+    private_quickshell_present && return 0
+    if private_runtime_supported && [[ ${enable_quickshell_repo:-no} != yes ]]; then
+        printf '%s\n' 'Ubuntu 24.04 base: sẽ chuẩn bị Qt/Quickshell riêng, không thêm PPA hoặc thay Qt hệ thống.'
+        return 0
+    fi
+    local suite=${UBUNTU_CODENAME:-}
+    if [[ ${ID:-} == ubuntu ]]; then suite=${suite:-${VERSION_CODENAME:-}}; fi
+    [[ $suite == noble ]] || return 0
+    package_available quickshell && return 0
+    configure_quickshell_repository
+    verify_quickshell_repository
+}
+
 write_repository_file() {
     local source=$1 destination=$2
     [[ ! -L $destination && ! -L $(dirname -- "$destination") ]] || fail "Unsafe repository destination: $destination"
@@ -68,6 +120,7 @@ enable_quickshell_repository() {
     local stage fingerprint key_destination package
     configure_quickshell_repository
     [[ -n $repository_format ]] || return
+    verify_quickshell_repository
     printf 'Optional third-party native source: %s\nSigning key: %s\n' "$repository_url" "$repository_fingerprint"
     if [[ ${mode:-install} == plan ]]; then
         printf '%s\n' 'Repository plan only; no source/key was installed. Rerun with --enable-quickshell-repo to approve adding this source.'

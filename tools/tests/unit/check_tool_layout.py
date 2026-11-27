@@ -23,6 +23,7 @@ class ToolLayoutChecks(unittest.TestCase):
     def test_installer_and_administrative_entry_points(self):
         for relative in (
             "tools/install/runtime_admin.py", "tools/install/upgrade_runtime.py",
+            "tools/install/private_runtime.py",
             "tools/admin/migrate_catalog.py", "tools/admin/prepare_lab_images.py",
             "tools/admin/prepare_ubuntu_workstation.py",
         ):

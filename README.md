@@ -158,8 +158,8 @@ không được xem là hệ thống thi chống gian lận trên máy do ngư�
 ### Yêu cầu môi trường
 
 - Máy Linux hoặc máy ảo Linux có **systemd** và **System D-Bus** đang hoạt động.
-- **Python 3.12 trở lên**, Docker Engine và Quickshell native **0.3.1 trở lên**,
-  cùng các module Qt/QML mà bộ cài kiểm tra.
+- **Python 3.12 trở lên**, Docker Engine và Quickshell **0.3.1 trở lên**,
+  cùng các module Qt/QML native hoặc runtime riêng mà bộ cài hỗ trợ.
 - Quyền quản trị qua `sudo` để cài dịch vụ và runtime hệ thống.
 - Internet để tải nguồn, dependency và image chưa có; đủ dung lượng cho build,
   image, dữ liệu thực hành và bản sao phục hồi.
@@ -170,8 +170,9 @@ Linux khác, nhưng có bộ điều hợp **không đồng nghĩa** mọi phiê
 bộ cài không tự nâng hệ điều hành để giải quyết dependency thiếu.
 
 Ưu tiên cài mới trên **Ubuntu 26.04 LTS và Debian 13**; giữ đường cài Arch.
-**Ubuntu 24.04 / Linux Mint 22.x chưa có đường cài tự động đầy đủ** vì thiếu
-Quickshell trong nguồn đã duyệt, không nên thêm PPA rồi coi là đã hỗ trợ.
+**Ubuntu 24.04 / Linux Mint 22.x x86_64** có fallback Qt/Quickshell riêng khi
+thiếu runtime native; không thay Qt hệ thống hoặc thêm PPA rỗng. Lần cài đầu
+cần tải Qt dựng sẵn, build Quickshell và tối thiểu 5 GiB dung lượng tạm.
 Xem [bảng nền tảng và kết quả kiểm thử](docs/installation/platforms.md) trước khi
 cài trên máy khác. Windows/macOS không chạy trực tiếp bộ cài Linux này.
 

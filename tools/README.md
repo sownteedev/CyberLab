@@ -27,6 +27,9 @@ cả tích hợp dùng private D-Bus và MemoryRuntime, không chỉ unit test t
 | --- | --- |
 | [install/system.sh](install/system.sh) | Điều phối bộ cài, được gọi qua `install.sh` ở gốc repo. |
 | [install/runtime_admin.py](install/runtime_admin.py) | Kiểm tra tài khoản/đường dẫn, build không đặc quyền và xác minh bản cài. |
+| [install/quickshell_source.py](install/quickshell_source.py) | Đọc chỉ mục APT có giới hạn để kiểm tra gói Quickshell đúng nền/kiến trúc trước khi thêm nguồn. |
+| [install/private_runtime.py](install/private_runtime.py) | Build Quickshell không đặc quyền với Qt riêng; kiểm tra checksum, đường dẫn và QML trước khi cài. Chỉ gọi qua installer có khóa thao tác. |
+| [install/gui-runtime.json](install/gui-runtime.json) | Phiên bản, nguồn HTTPS và SHA-256 của runtime riêng; không tự lấy bản Qt mới nhất. |
 | [install/upgrade_runtime.py](install/upgrade_runtime.py) | Kiểm tra Session/Studio, backup và cập nhật có rollback. |
 | [admin/migrate_catalog.py](admin/migrate_catalog.py) | Chuyển kho bài theo thao tác quản trị được xác nhận. |
 | [admin/prepare_lab_images.py](admin/prepare_lab_images.py) | Chuẩn bị image theo recipe được giới hạn. |

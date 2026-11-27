@@ -5,8 +5,13 @@ from pathlib import Path
 from contextlib import redirect_stdout
 import importlib.util
 import io
+import gzip
+import os
+import pty
 import shlex
+import stat
 import subprocess
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -94,6 +99,7 @@ collect_update_package
                 result = self.shell(f'''
 family=debian; ID={identifier}; VERSION_CODENAME={codename}; UBUNTU_CODENAME=noble
 mode=plan
+verify_quickshell_repository() {{ fail 'Ubuntu 24.04 / Linux Mint 22: no quickshell package'; }}
 enable_quickshell_repository
 ''')
                 self.assertNotEqual(result.returncode, 0)
@@ -173,6 +179,7 @@ printf '%s\\n' "${{host_packages[@]}}"
     def test_repository_prerequisites_refresh_metadata_first(self):
         result = self.shell('''
 family=debian; mode=install; refreshed=no
+verify_quickshell_repository() { :; }
 configure_quickshell_repository() {
     repository_format=apt; repository_url=https://example.invalid;
     repository_fingerprint=fixture; repository_destination=/nonexistent/fixture;
@@ -188,11 +195,145 @@ enable_quickshell_repository
     def test_source_plan_never_refreshes_metadata(self):
         result = self.shell('''
 family=debian; mode=plan; ID=ubuntu; VERSION_CODENAME=resolute; UBUNTU_CODENAME=
+verify_quickshell_repository() { :; }
 refresh_native_metadata() { fail 'plan must not modify package metadata'; }
 enable_quickshell_repository
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('plan only', result.stdout)
+
+    def test_empty_repository_is_rejected_before_any_package_change(self):
+        result = self.shell('''
+family=debian; mode=install; ID=ubuntu; VERSION_CODENAME=resolute; UBUNTU_CODENAME=
+verify_quickshell_repository() { fail 'no compatible package in source'; }
+refresh_native_metadata() { fail 'unexpected metadata write'; }
+guarded_package_install() { fail 'unexpected package change'; }
+enable_quickshell_repository
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no compatible package in source', result.stderr)
+        self.assertNotIn('unexpected', result.stderr)
+
+    def test_native_or_enabled_repository_does_not_prompt_for_external_source(self):
+        for installed, available in [(True, False), (False, True)]:
+            with self.subTest(installed=installed):
+                result = self.shell(f'''
+family=debian; mode=install; enable_quickshell_repo=no
+native_quickshell_present() {{ return {0 if installed else 1}; }}
+package_available() {{ return {0 if available else 1}; }}
+configure_quickshell_repository() {{ fail 'unexpected external source'; }}
+ensure_quickshell_source
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_source_consent_is_not_implied_by_yes(self):
+        result = self.shell('''
+family=debian; mode=install; enable_quickshell_repo=no; assume_yes=yes
+native_quickshell_present() { return 1; }
+package_available() { return 1; }
+configure_quickshell_repository() { repository_format=apt; repository_url=https://example.invalid; repository_fingerprint=fixture; }
+verify_quickshell_repository() { :; }
+confirm_quickshell_repository() { fail 'repository consent required'; }
+enable_quickshell_repository() { fail 'unexpected source change'; }
+ensure_quickshell_source
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('repository consent required', result.stderr)
+
+    def test_real_source_prompt_requires_terminal_even_with_yes(self):
+        result = self.shell('''
+assume_yes=yes; repository_url=https://example.invalid; repository_fingerprint=fixture
+confirm_quickshell_repository
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--yes', result.stderr)
+
+    def test_real_source_prompt_accepts_and_rejects_terminal_input(self):
+        script = f'''
+source {shlex.quote(str(ROOT / 'tools/install/repositories.sh'))}
+fail() {{ printf '%s' "$*" >&2; exit 1; }}
+repository_url=https://example.invalid; repository_fingerprint=fixture
+confirm_quickshell_repository
+'''
+        for answer, expected in [(b'y\n', 0), (b'n\n', 1)]:
+            with self.subTest(answer=answer):
+                master, slave = pty.openpty()
+                try:
+                    with subprocess.Popen(['/bin/bash', '-eu', '-c', script], stdin=slave,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+                        os.write(master, answer)
+                        output, error = process.communicate(timeout=5)
+                        self.assertEqual(process.returncode, expected, output + error)
+                finally:
+                    os.close(slave)
+                    os.close(master)
+
+    def test_approved_source_is_rechecked_after_refresh(self):
+        result = self.shell('''
+family=debian; mode=install; enable_quickshell_repo=yes; refreshed=no
+native_quickshell_present() { return 1; }
+package_available() { [[ $refreshed == yes ]]; }
+enable_quickshell_repository() { printf 'APPROVED\n'; }
+refresh_native_metadata() { refreshed=yes; }
+ensure_quickshell_source
+printf 'READY'
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('APPROVED', result.stdout)
+        self.assertIn('READY', result.stdout)
+
+    def test_read_only_modes_do_not_enable_sources(self):
+        for mode in ('plan', 'check', 'update'):
+            with self.subTest(mode=mode):
+                result = self.shell(f'''
+mode={mode}; enable_quickshell_repo=yes
+enable_quickshell_repository() {{ fail 'source mutation'; }}
+ensure_quickshell_source
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_noble_preflight_selects_private_without_repository_changes(self):
+        result = self.shell('''
+mode=install; dependencies=yes; family=debian; ID=ubuntu; VERSION_CODENAME=noble; UBUNTU_CODENAME=
+native_quickshell_present() { return 1; }
+package_available() { return 1; }
+verify_quickshell_repository() { fail 'noble has no compatible package'; }
+refresh_native_metadata() { fail 'unexpected metadata change'; }
+preflight_native_install
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('riêng', result.stdout)
+        system = (ROOT / 'tools/install/system.sh').read_text()
+        self.assertLess(system.index('\npreflight_native_install\n'), system.index('exec sudo'))
+
+    def test_prepared_noble_runtime_is_not_rejected_by_codename(self):
+        result = self.shell('''
+mode=install; dependencies=yes; ID=linuxmint; UBUNTU_CODENAME=noble
+native_quickshell_present() { return 0; }
+configure_quickshell_repository() { fail 'unexpected source requirement'; }
+preflight_native_install
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_manual_upstream_install_is_recognized_without_path_wrappers(self):
+        spec = importlib.util.spec_from_file_location('source_launcher', ROOT / 'ui/launcher.py')
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        candidate = Path('/usr/local/bin/quickshell')
+        safe = SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o755)
+        with patch.object(Path, 'is_file', lambda path: path == candidate), \
+             patch.object(launcher.os, 'access', return_value=True), \
+             patch.object(Path, 'resolve', lambda path, **options: path), \
+             patch.object(Path, 'stat', return_value=safe), \
+             patch.object(Path, 'open', side_effect=lambda *args, **kwargs: io.BytesIO(b'\x7fELF' + b'\0' * 8)):
+            self.assertEqual(launcher.native_quickshell(), candidate)
+            with patch.object(Path, 'stat', return_value=SimpleNamespace(st_uid=1000, st_mode=stat.S_IFREG | 0o755)):
+                self.assertIsNone(launcher.native_quickshell())
+            with patch.object(Path, 'stat', return_value=SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o777)):
+                self.assertIsNone(launcher.native_quickshell())
+        packages = (ROOT / 'tools/install/packages.sh').read_text()
+        for executable in launcher.NATIVE_QUICKSHELL:
+            self.assertIn(str(executable), packages)
 
 
     def test_debian_split_docker_cli_is_installed_with_engine(self):
@@ -271,6 +412,59 @@ printf 'must not continue'
         self.assertEqual(result.returncode, 100)
         self.assertNotIn('must not continue', result.stdout)
 
+
+class QuickshellSourceChecks(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('quickshell_source', ROOT / 'tools/install/quickshell_source.py')
+        self.source = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.source)
+
+    def package(self, version='0.3.2ppa1', architecture='amd64', name='quickshell'):
+        return f'Package: {name}\nVersion: {version}\nArchitecture: {architecture}\n\n'
+
+    def test_exact_package_architecture_and_runtime_version(self):
+        source = self.package(name='quickshell-doc') + self.package(architecture='arm64') + self.package('0.2.1')
+        with self.assertRaises(ValueError):
+            self.source.select_package(source, 'amd64')
+        self.assertEqual(self.source.select_package(source + self.package(), 'amd64'), '0.3.2ppa1')
+
+    def test_old_or_malformed_version_is_rejected(self):
+        for version in ('0.3.0', '0.3.1~rc1', 'unknown', '1:0.1.0'):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                self.source.select_package(self.package(version), 'amd64')
+
+    def test_empty_or_wrong_architecture_source_is_rejected(self):
+        for text in ('', self.package(architecture='arm64')):
+            with self.assertRaises(ValueError):
+                self.source.select_package(text, 'amd64')
+
+    def test_duplicate_fields_are_rejected(self):
+        with self.assertRaises(ValueError):
+            self.source.select_package(self.package().replace('Version:', 'Package: other\nVersion:'), 'amd64')
+
+    def test_expansion_and_download_are_bounded(self):
+        for data, compressed, expanded in [(b'a' * 101, 100, 1000), (gzip.compress(b'a' * 101), 1000, 100)]:
+            with self.subTest(compressed=compressed):
+                with patch.object(self.source, 'MAX_COMPRESSED', compressed), patch.object(self.source, 'MAX_EXPANDED', expanded):
+                    with self.assertRaises(ValueError):
+                        self.source.decode_index(data)
+        data = self.package().encode()
+        self.assertEqual(self.source.decode_index(gzip.compress(data)), data.decode())
+
+    def test_source_url_stays_with_matching_suite_and_architecture(self):
+        base = 'https://ppa.launchpadcontent.net/avengemedia/danklinux/ubuntu'
+        self.assertEqual(self.source.index_url(base, 'noble', 'amd64'), base + '/dists/noble/main/binary-amd64/Packages.gz')
+        for suite, architecture in [('../resolute', 'amd64'), ('noble', '../arm64')]:
+            with self.assertRaises(ValueError):
+                self.source.index_url(base, suite, architecture)
+        with self.assertRaises(ValueError):
+            self.source.index_url('https://unreviewed.invalid', 'noble', 'amd64')
+
+    def test_https_redirect_cannot_downgrade_transport(self):
+        import urllib.request
+        handler = self.source.HttpsRedirect()
+        with self.assertRaises(ValueError):
+            handler.redirect_request(urllib.request.Request('https://example.invalid'), None, 302, '', {}, 'http://example.invalid')
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

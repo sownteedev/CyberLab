@@ -1,0 +1,18 @@
+CyberLab private GUI runtime
+
+Qt 6.10.3: dynamically linked, unmodified upstream binaries from download.qt.io.
+Qt source: https://download.qt.io/archive/qt/6.10/6.10.3/submodules/
+Quickshell 0.3.2 source: https://github.com/quickshell-mirror/quickshell/tree/v0.3.2
+ICU 73.2 source: https://github.com/unicode-org/icu/tree/release-73-2
+
+The installed manifest records exact artifact URLs and SHA-256 hashes. Qt's
+upstream SBOMs (including component copyright/license records) are preserved
+under qt/sbom. Quickshell's license is installed as LICENSE.quickshell.
+Qt uses LGPLv3/GPL licensing with additional third-party notices; consult the
+included license texts and SBOMs for each component. This runtime does not
+grant a Qt commercial license. Development-only Qt tools are not installed.
+
+The sources and build recipe tools/install/private_runtime.py are public in
+the CyberLab repository. Libraries are dynamically linked and can be replaced
+by the machine administrator; matching Qt private ABI is required when
+rebuilding Quickshell. No system Qt library is overwritten.

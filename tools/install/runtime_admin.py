@@ -221,6 +221,10 @@ def trusted_parents(path):
 
 def fresh_targets(check_service=True):
     for destination in (APP, CONFIG, STATE, UNIT, DROPIN, BUS_POLICY, CLI, STUDIO, DESKTOP):
+        if destination == APP and APP.is_dir() and set(APP.iterdir()) == {APP / 'gui-runtime'}:
+            trusted_parents(APP / 'gui-runtime')
+            native_runtime()
+            continue
         if os.path.lexists(destination):
             raise ValueError(f"Existing installation path: {destination}. Use --update for a healthy installation; do not overwrite a partial install")
         trusted_parents(destination)
@@ -292,9 +296,9 @@ def native_runtime():
     spec = spec_from_file_location("studio_launcher", ROOT / "ui/launcher.py")
     launcher = module_from_spec(spec)
     spec.loader.exec_module(launcher)
-    executable = launcher.native_quickshell()
+    executable = launcher.runtime_quickshell()
     if executable is None:
-        raise ValueError("Native Quickshell not found at /usr/bin/qs or /usr/bin/quickshell. Install the distro package; user AppImage wrappers are not accepted")
+        raise ValueError("Trusted native Quickshell not found in /usr/bin or /usr/local/bin. Install a compatible distro package or administrator-built native runtime; user PATH/AppImage wrappers are not accepted")
     return executable
 
 def native_version(account):
@@ -308,6 +312,9 @@ def native_version(account):
 
 def probe_runtime(account, studio_path=None):
     executable, version_text = native_version(account)
+    if executable == APP / 'gui-runtime/bin/quickshell':
+        run(PYTHON, '-B', '-I', ROOT / 'tools/install/private_runtime.py',
+            '--verify-display', APP / 'gui-runtime', account=account, timeout=70)
     with tempfile.TemporaryDirectory(prefix="cyberlab-qml-probe-") as directory:
         root = Path(directory)
         probe = read_regular(ROOT / "tools/install/probe.qml", 16384).decode()
@@ -351,7 +358,14 @@ def probe_runtime(account, studio_path=None):
         if process.returncode or "CYBERLAB_NATIVE_QML_OK" not in output:
             raise RuntimeError(f"Native Qt/QML modules failed the isolated offscreen check (exit {process.returncode}): " + output[-5000:])
     print("PASS: native Quickshell and required Qt/QML modules (isolated, offscreen)")
-    return {"executable": str(executable), "version": version_text, "qml_probe": "passed"}
+    result = {"executable": str(executable), "version": version_text, "qml_probe": "passed"}
+    if executable == APP / 'gui-runtime/bin/quickshell':
+        metadata = read_regular(APP / 'gui-runtime/manifest.json', 16384)
+        result.update(provider='private', qt=json.loads(metadata)['qt'],
+                      manifest_sha256=sha256(metadata).hexdigest())
+    else:
+        result['provider'] = 'native'
+    return result
 
 
 def install_file(destination, content, mode=0o644):

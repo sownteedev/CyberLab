@@ -31,7 +31,11 @@ No options: install missing native packages and CyberLab on a new machine.
 
 Uses enabled distro repositories only: pacman, apt, dnf or zypper.
 An optional third-party Quickshell source requires --enable-quickshell-repo.
-No AppImage, automatic repository additions or whole-OS upgrades.
+Missing Quickshell: offer a matching source with explicit consent on interactive installs.
+--yes approves package transactions, never an external repository.
+No AppImage, silent repository additions or whole-OS upgrades.
+Ubuntu 24.04 x86_64 without Quickshell: build a pinned private GUI runtime.
+It needs 5 GiB temporary space and never replaces system Qt.
 Python packages are installed in a private venv, not the system Python.
 EOF
 }
@@ -79,6 +83,7 @@ if [[ $mode == update || $mode == check || $dependencies == no && $mode != plan 
 fi
 
 detect_distribution
+select_gui_runtime
 configure_packages
 if [[ $mode == plan ]]; then
     print_package_plan
@@ -95,6 +100,8 @@ desktop_uid="$(id -u -- "$desktop_user")" || fail 'Unknown desktop account.'
 if getent group docker >/dev/null && [[ " $(id -Gn -- "$desktop_user") " == *' docker '* ]]; then
     fail 'The desktop account belongs to docker. Review that access first; CyberLab must use its daemon.'
 fi
+
+preflight_native_install
 
 if [[ $mode != check && $EUID != 0 ]]; then
     command -v sudo >/dev/null || fail 'Run as administrator with --user YOUR_DESKTOP_USER.'
@@ -114,13 +121,18 @@ if [[ $mode == install ]]; then
         /etc/systemd/system/cyberlabd.service /etc/systemd/system/cyberlabd.service.d \
         /etc/dbus-1/system.d/org.ptit.CyberLab1.conf /usr/local/bin/cyberlab \
         /usr/local/bin/cyberlab-studio /usr/share/applications/cyberlab-studio.desktop; do
+        if [[ $target == /usr/lib/cyberlab && -d $target && ! -L $target ]]; then
+            if [[ $(find "$target" -mindepth 1 -maxdepth 1 -printf '%f\n') == gui-runtime ]]; then
+                python3 -B -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user" native-version
+                continue
+            fi
+        fi
         [[ ! -e $target && ! -L $target ]] || fail "Existing installation: $target. Use --update for a healthy installation; do not overwrite a partial install."
     done
     [[ $(systemctl show cyberlabd.service --property=LoadState --value) == not-found ]] || fail 'A CyberLab service already exists.'
 fi
 
 if [[ $dependencies == yes ]]; then
-    if [[ $enable_quickshell_repo == yes ]]; then enable_quickshell_repository; fi
     install_native_packages
 fi
 python="$(select_python)" || fail 'Python 3.12+ with venv/ensurepip is required; use a supported release. The installer will not replace system Python.'
@@ -176,7 +188,7 @@ if [[ $mode == update ]]; then
 else
     systemctl start docker.service
     "${admin[@]}" prepare --stage "$stage"
-    mkdir -m 755 /usr/lib/cyberlab
+    mkdir -p -m 755 /usr/lib/cyberlab
     "$python" -I -m venv /usr/lib/cyberlab/venv
     runtime_python=/usr/lib/cyberlab/venv/bin/python
     "$runtime_python" -I -m pip --isolated install --no-index --no-cache-dir \
@@ -203,7 +215,7 @@ else
     systemctl enable --now cyberlabd.service
     "${admin[@]}" verify --stage "$stage" --wheel "$wheel"
     service_started=no
-    printf '%s\n' 'DONE: CyberLab installed with native Quickshell. No sample Labs were added.'
+    printf '%s\n' 'DONE: CyberLab installed with a verified GUI runtime. No sample Labs were added.'
 fi
 printf '%s\n' 'As the desktop user: cyberlab info; cyberlab-studio' \
     'Save editor work and reopen Studio yourself; no existing windows were closed.'
