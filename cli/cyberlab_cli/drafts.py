@@ -5,15 +5,25 @@ import sys
 from pathlib import Path
 import re
 import stat
+import errno
 
 from cyberlab_ipc import MAX_DRAFT_ASSET, MAX_DRAFT_DEFINITION, MAX_DRAFT_PACKAGE
 
 def read_file(name, limit, parent=None):
-    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+    try:
+        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ValueError("Draft input cannot be a symbolic link") from None
+        raise
     with os.fdopen(descriptor, "rb") as source:
         before = os.fstat(source.fileno())
-        if not stat.S_ISREG(before.st_mode) or before.st_size > limit or before.st_nlink != 1:
-            raise ValueError("Draft input must be a bounded regular file without symlinks or hardlinks")
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("Draft input must be a regular file")
+        if before.st_nlink != 1:
+            raise ValueError("Draft input cannot have hardlinks")
+        if before.st_size > limit:
+            raise ValueError(f"Draft input exceeds the byte limit: {before.st_size} > {limit}")
         data = source.read(limit + 1)
         after = os.fstat(source.fileno())
         if len(data) > limit or (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):

@@ -66,7 +66,7 @@ def _legacy_entries(data):
 def read_package(data):
     try:
         if not isinstance(data, bytes) or not data or len(data) > MAX_ARCHIVE:
-            raise ValueError("Lab package exceeds 4 MiB or is empty")
+            raise ValueError("Lab package exceeds 24 MiB or is empty")
         if data.startswith(exchange_v3.MAGIC):
             definition, entries, manifest = exchange_v3.decode(data)
             definition_bytes = definition.encode("utf-8")

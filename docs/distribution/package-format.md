@@ -48,11 +48,17 @@ Không chấp nhận prefix, trailer, padding hoặc stream nối thêm. Envelop
 | Dữ liệu | Giới hạn |
 | --- | ---: |
 | Definition | 64 KiB |
-| Một asset | 1 MiB |
-| Tổng definition + asset giải mã | 2 MiB |
+| Một asset | 8 MiB |
+| Tổng definition + asset giải mã | 16 MiB |
 | Đường dẫn, gồm thư mục cha ngầm định | 128 |
 | Manifest | 64 KiB |
-| Toàn container | 4 MiB |
+| Toàn container | 24 MiB |
+
+Giới hạn này áp dụng đồng bộ cho nhập tệp/thư mục trong Studio, CLI, lưu bản
+nháp, đọc kho, xuất/nhập gói và nạp tệp vào node. Tệp nhị phân (ảnh, PDF, PCAP)
+được giữ nguyên byte; không bắt buộc là văn bản. Tổng tệp khởi tạo sau ánh xạ
+vào các node tối đa 16 MiB. Bản cài cũ còn trần 1/2/4 MiB có thể từ chối gói
+lớn hơn; cần cập nhật cả bên tạo và bên nhận. Định dạng v3 không đổi.
 
 Envelope có trần riêng cho overhead base64/JSON; không làm tăng giới hạn nội
 dung giải mã. Codec kiểm tra length/checksum trước inflation, chặn vượt trần

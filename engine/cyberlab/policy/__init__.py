@@ -65,4 +65,4 @@ class RuntimePolicy:
             if not node.command:
                 raise PolicyDenied("Each runtime node requires an explicit command")
         if sum(len(node.seed) + len(node.system_seed) for node in lab.nodes) > MAX_ENTRIES or sum(len(entry.data or b"") for node in lab.nodes for entry in (*node.seed, *node.system_seed)) > MAX_BYTES:
-            raise PolicyDenied("Lab initial files exceed the 128 entry or 1 MiB limit")
+            raise PolicyDenied("Lab initial files exceed the 128 entry or 16 MiB limit")

@@ -80,6 +80,21 @@ Arch dùng gói stable trong repository đang bật. Fedora có lựa chọn COP
 đã khai báo trong bộ cài; không dùng nguồn Ubuntu cho Fedora hoặc đoán phiên
 bản nền của distro dẫn xuất. Không tắt SELinux để vượt lỗi cài dịch vụ.
 
+### Kali rolling: APT yêu cầu gỡ thư viện cũ
+
+Khi kế hoạch APT có `libpyside6-py3-6.10`/`libshiboken6-py3-6.10` bị gỡ để
+thay bằng bản ABI khác, bộ cài giữ chốt `--no-remove`. Đây không phải lỗi tải
+CyberLab; các dependency của máy cần được quản trị riêng. Không bỏ chốt gỡ gói,
+không trộn repository Ubuntu vào Kali và không tự chạy nâng cấp toàn hệ điều hành.
+
+Bộ cài chạy thêm một lần **mô phỏng**, không cài đặt, để hiển thị gói bị thay.
+Kiểm tra nguồn APT, cập nhật chỉ mục bằng `sudo apt-get update`, rồi xem trước
+`apt-get -s full-upgrade`. Người quản trị cần đọc kế hoạch và quyết định nâng
+cấp Kali riêng; sau khi hệ thống nhất quán, chạy lại bộ cài CyberLab.
+`--allow-dependency-upgrades` không cho phép gỡ gói và không giải quyết một
+chuyển đổi ABI có gỡ thư viện cũ. Lượt sửa này có test mô phỏng tình huống trong
+ảnh, chưa xác minh cài thật trên máy Kali của người dùng.
+
 ## Dependency và khả năng sử dụng
 
 - **Bắt buộc:** Python >=3.12, Quickshell >=0.3.1, Qt/QML native hoặc riêng phù hợp,

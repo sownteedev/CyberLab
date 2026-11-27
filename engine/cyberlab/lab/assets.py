@@ -7,7 +7,7 @@ import stat
 
 from .models import SeedEntry, FileMapping
 
-MAX_BYTES = 1024 * 1024
+MAX_BYTES = 16 * 1024 * 1024
 MAX_ENTRIES = 128
 
 class AssetError(Exception):
@@ -44,7 +44,7 @@ def validate_seed(entries):
         paths[entry.path] = entry.data
         total += len(entry.data) if entry.data is not None else 0
     if total > MAX_BYTES:
-        raise AssetError("Initial files exceed the 1 MiB limit")
+        raise AssetError("Initial files exceed the 16 MiB limit")
     for path in paths:
         parent = Path(path).parent
         while str(parent) != ".":
@@ -104,7 +104,7 @@ def snapshot_lab(lab, project):
                 total_entries += 1
                 total_bytes += len(data) if data is not None else 0
                 if total_entries > MAX_ENTRIES or total_bytes > MAX_BYTES:
-                    raise AssetError("Lab assets exceed the 128 entry or 1 MiB limit")
+                    raise AssetError("Lab assets exceed the 128 entry or 16 MiB limit")
                 entries[path] = data
 
             def read_entry(parent, name, target):

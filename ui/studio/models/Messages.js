@@ -1,6 +1,19 @@
 .pragma library
 
 var catalog = {
+    "Authoring payload exceeds its limit": "Dữ liệu chỉnh sửa vượt giới hạn dung lượng cho phép.",
+    "Draft input cannot be a symbolic link": "Không thể nhập liên kết tượng trưng. Hãy chọn tệp gốc.",
+    "Draft input cannot have hardlinks": "Tệp có liên kết cứng. Hãy tạo một bản sao độc lập rồi nhập lại.",
+    "Draft input must be a regular file": "Hãy chọn một tệp thông thường; để nhập thư mục, chọn Nhập thư mục.",
+    "Draft input changed or exceeded its limit while reading": "Tệp đã thay đổi hoặc vượt dung lượng trong khi đọc. Hãy thử lại sau khi lưu tệp xong.",
+    "An asset must contain at most 8 MiB of bytes": "Mỗi tệp không được vượt quá 8 MiB.",
+    "Draft exceeds 128 paths or 16 MiB including its definition": "Bản nháp vượt quá 128 đường dẫn hoặc 16 MiB, tính cả cấu hình.",
+    "Catalog package exceeds 16 MiB": "Gói bài lab vượt giới hạn 16 MiB.",
+    "Initial files exceed the 16 MiB limit": "Tổng dung lượng tệp ban đầu vượt quá 16 MiB.",
+    "Lab assets exceed the 128 entry or 16 MiB limit": "Tệp bài lab vượt giới hạn 128 mục hoặc 16 MiB.",
+    "Lab initial files exceed the 128 entry or 16 MiB limit": "Tệp ban đầu vượt giới hạn 128 mục hoặc 16 MiB.",
+    "Lab package archive exceeds 24 MiB": "Gói bài lab vượt giới hạn 24 MiB.",
+    "Lab package exceeds 24 MiB or is empty": "Gói bài lab trống hoặc vượt giới hạn 24 MiB.",
     "Account is unavailable for this operation": "Tài khoản không còn tồn tại hoặc chưa hỗ trợ thao tác này.",
     "Invalid password request": "Yêu cầu đổi mật khẩu không hợp lệ.",
     "Password requires 1-128 UTF-8 bytes without NUL or newlines": "Mật khẩu cần 1–128 byte UTF-8, không chứa ký tự xuống dòng hoặc NUL.",
@@ -488,6 +501,9 @@ function line(value) {
     if (dependency) return ({"Network alias is already used": "Tên thay thế đã được sử dụng: ", "Undefined wait_for node": "Máy cần chờ chưa được khai báo: ", "Node cannot wait for itself": "Máy không thể chờ chính nó: ", "wait_for dependency cycle": "Các máy đang chờ nhau theo vòng: "})[dependency[1]] + dependency[2] + ".";
     const startup = source.match(/^Node (\S+) dependency (\S+) (was not started|stopped during startup)$/);
     if (startup) return "Máy " + startup[1] + " cần máy " + startup[2] + (startup[3] === "was not started" ? " khởi động trước." : " nhưng máy đó đã dừng trong lúc khởi động.");
+    const inputSize = source.match(/^Draft input exceeds the byte limit: (\d+) > (\d+)$/);
+    if (inputSize) return "Không thể nhập tệp: dung lượng " + (Number(inputSize[1]) / 1048576).toFixed(2)
+        + " MiB, giới hạn còn lại " + (Number(inputSize[2]) / 1048576).toFixed(2) + " MiB.";
     const install = source.match(/^Software installation failed: (.*)$/);
     if (install) return "Cài phần mềm không thành công. Chi tiết kỹ thuật: " + install[1];
     const path = source.match(/^((?:\/|assets\/)[^\n]*?): (.+)$/);

@@ -13,6 +13,19 @@ resolve_package_transaction() {
     case "$family" in
         debian)
             apt-get --simulate --no-remove --no-install-recommends install "${missing_packages[@]}" > "$output" 2>&1 || status=$?
+            if ((status)); then
+                apt-get --simulate --no-install-recommends install "${missing_packages[@]}" > "$output.diagnostic" 2>&1 || true
+            fi
+            if grep -q '^Remv ' "$output" || { [[ -f $output.diagnostic ]] && grep -q '^Remv ' "$output.diagnostic"; }; then
+                cat "$output" >&2
+                [[ ! -f $output.diagnostic ]] || cat "$output.diagnostic" >&2
+                if [[ ${ID:-} == kali ]]; then
+                    printf '%s\n' 'Kali: APT yêu cầu gỡ/thay thư viện đang cài (có thể do chuyển ABI Qt/PySide/Shiboken của nhánh rolling). CyberLab chưa cài hoặc gỡ gói nào.' \
+                        'Hãy kiểm tra nguồn APT, chạy sudo apt-get update rồi apt-get -s full-upgrade để xem kế hoạch nâng cấp hệ điều hành riêng. Chỉ nâng cấp sau khi đã xem và đồng ý kế hoạch đó, rồi chạy lại bộ cài CyberLab.' \
+                        '--allow-dependency-upgrades chỉ cho nâng phiên bản dependency; không cho phép gỡ gói hoặc tự nâng cấp toàn hệ điều hành.' >&2
+                fi
+                fail 'APT requires package removals. Review the system dependency transition separately; CyberLab will not remove existing providers.'
+            fi
             ;;
         arch)
             pacman -Sp --needed --color never --print-format '%n %v' "${missing_packages[@]}" > "$output" 2> "$output.stderr" || status=$?

@@ -19,7 +19,7 @@ class LabNotFoundError(LabError):
 class LabInUseError(LabError):
     """The Lab cannot be removed because it is still referenced."""
 
-MAX_PACKAGE_BYTES = 2 * 1024 * 1024
+MAX_PACKAGE_BYTES = 16 * 1024 * 1024
 MAX_PACKAGE_ENTRIES = 128
 
 

@@ -8,8 +8,8 @@ import tempfile
 from .assets import valid_path
 
 MAX_DEFINITION = 64 * 1024
-MAX_ASSET = 1024 * 1024
-MAX_PACKAGE = 2 * 1024 * 1024
+MAX_ASSET = 8 * 1024 * 1024
+MAX_PACKAGE = 16 * 1024 * 1024
 MAX_PATHS = 128
 
 
@@ -35,7 +35,7 @@ def check_package(definition, assets):
         if path != "assets" or data is not None:
             asset_path(path)
         if data is not None and (not isinstance(data, bytes) or len(data) > MAX_ASSET):
-            raise ValueError("An asset must contain at most 1 MiB of bytes")
+            raise ValueError("An asset must contain at most 8 MiB of bytes")
         total += len(data) if data is not None else 0
         paths.add(path)
         for parent in Path(path).parents:
@@ -44,7 +44,7 @@ def check_package(definition, assets):
                     raise ValueError("Asset file and directory paths conflict")
                 paths.add(str(parent))
         if len(paths) > MAX_PATHS or total > MAX_PACKAGE:
-            raise PackageLimit("Draft exceeds 128 paths or 2 MiB including its definition")
+            raise PackageLimit("Draft exceeds 128 paths or 16 MiB including its definition")
 
 
 def digest(definition, assets):
@@ -154,7 +154,7 @@ def read_directory(directory):
             else:
                 raise ValueError("Catalog packages cannot contain links or special files")
             if total > MAX_PACKAGE:
-                raise PackageLimit("Catalog package exceeds 2 MiB")
+                raise PackageLimit("Catalog package exceeds 16 MiB")
         if identity(before) != identity(os.fstat(parent)):
             raise ValueError("Catalog directory changed while reading")
         return definition

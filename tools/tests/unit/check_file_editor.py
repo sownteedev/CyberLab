@@ -10,11 +10,50 @@ import base64
 import asyncio
 import json
 import unittest
+import os
+import tempfile
 
 from tools.tests.unit.check_editing_drafts import EditingDraftChecks, DraftConflict, drafts, dispatch, METHODS
 
 
 class FileEditorChecks(unittest.TestCase):
+    def test_large_binary_import_save_export_and_reload(self):
+        from cyberlab.lab import exchange
+        from cyberlab.lab.models import SeedEntry
+        from cyberlab.lab.assets import validate_seed
+        from types import SimpleNamespace
+        data = b"\x89PNG\r\n\x1a\n" + os.urandom(2 * 1024 * 1024)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'diagram.png'
+            source.write_bytes(data)
+            for folder in (False, True):
+                result = drafts.prepare(argparse.Namespace(draft_action='read-local',
+                    source=directory if folder else str(source), folder=folder))
+                resource = next(item for item in result if item['path'] == 'diagram.png')
+                self.assertEqual(base64.b64decode(resource['content']['bytes']), data)
+            saved = self.apply({'assets/diagram.png': resource['content']})
+            snapshot = self.api.store.get(saved['id'], 1000)
+            validate_seed([SeedEntry('diagram.png', data)])
+            encoded = exchange.create_package(snapshot['definition'], snapshot['assets'],
+                SimpleNamespace(metadata=SimpleNamespace(id='file-editor', name='File editor', version='1'), nodes=[]))
+            decoded = exchange.read_package(encoded)
+            self.assertEqual(decoded[1]['assets/diagram.png'], data)
+
+    def test_local_input_errors_distinguish_size_and_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'data.bin'
+            source.write_bytes(b'12345')
+            with self.assertRaisesRegex(ValueError, 'exceeds the byte limit'):
+                drafts.read_file(source, 4)
+            link = Path(directory) / 'alias.bin'
+            link.symlink_to(source)
+            with self.assertRaisesRegex(ValueError, 'symbolic link'):
+                drafts.read_file(link, 8)
+            link.unlink()
+            os.link(source, link)
+            with self.assertRaisesRegex(ValueError, 'hardlinks'):
+                drafts.read_file(source, 8)
+
     def setUp(self):
         EditingDraftChecks.setUp(self)
         self.draft = self.api.create("file-editor", "File editor", 1000, tags=["linux"])

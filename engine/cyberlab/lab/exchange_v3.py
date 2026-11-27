@@ -11,7 +11,7 @@ from .package import MAX_ASSET, MAX_DEFINITION, MAX_PACKAGE, MAX_PATHS, asset_pa
 MAGIC = b"CYBLAB\r\n"
 VERSION = 3
 HEADER = struct.Struct(">8sBII32s")
-MAX_ARCHIVE = 4 * 1024 * 1024
+MAX_ARCHIVE = 24 * 1024 * 1024
 MAX_MANIFEST = 64 * 1024
 MAX_ENVELOPE = 4 * ((MAX_PACKAGE + 2) // 3) + 6 * MAX_DEFINITION + MAX_MANIFEST + MAX_PATHS * 256 + 1024
 
@@ -30,7 +30,7 @@ def encode(definition, assets, manifest):
     compressor = zlib.compressobj(wbits=-15)
     compressed = compressor.compress(raw) + compressor.flush()
     if HEADER.size + len(compressed) > MAX_ARCHIVE:
-        raise ValueError("Lab package archive exceeds 4 MiB")
+        raise ValueError("Lab package archive exceeds 24 MiB")
     return HEADER.pack(MAGIC, VERSION, len(compressed), len(raw), sha256(compressed).digest()) + compressed
 
 

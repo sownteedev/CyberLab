@@ -152,8 +152,8 @@ def configure(payload):
 
 def main():
     try:
-        raw = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)
-        if len(raw) > 2 * 1024 * 1024:
+        raw = sys.stdin.buffer.read(24 * 1024 * 1024 + 1)
+        if len(raw) > 24 * 1024 * 1024:
             raise ValueError('Setup exceeds its limit')
         payload = json.loads(raw)
         configure(payload)

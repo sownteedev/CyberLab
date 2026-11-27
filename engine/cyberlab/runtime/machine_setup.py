@@ -40,7 +40,7 @@ def setup_payload(node):
                                 apply=bool(prefix or permission),
                                 data=base64.b64encode(entry.data).decode('ascii') if entry.data is not None else None))
     payload = json.dumps(dict(user=asdict(node.user), setup=asdict(node.setup), entries=entries), separators=(',', ':')).encode()
-    if len(payload) > 2 * 1024 * 1024:
+    if len(payload) > 24 * 1024 * 1024:
         raise RuntimeFailure('Machine setup exceeds its transfer limit')
     return payload
 

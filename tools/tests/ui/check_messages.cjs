@@ -23,6 +23,12 @@ for (const literal of ['Đã lưu bản nháp.', 'assets/Error:notes.md', 'print
     assert.equal(messages.text(literal), literal);
 }
 assert.equal(messages.text(null), '');
+assert.equal(messages.text('FAIL: Draft input exceeds the byte limit: 9437184 > 8388608'),
+    'Không thể nhập tệp: dung lượng 9.00 MiB, giới hạn còn lại 8.00 MiB.');
+for (const source of ['Draft input cannot be a symbolic link', 'Draft input cannot have hardlinks',
+    'Draft input must be a regular file', 'Draft input changed or exceeded its limit while reading']) {
+    assert.notEqual(messages.text(source), source);
+}
 assert.equal(messages.text('Could not reset saved practice; checkpoint retained'), 'Không thể đặt lại tiến độ. Bản lưu vẫn được giữ; hãy thử lại hoặc dừng phiên rồi tiếp tục từ bản lưu.');
 assert.equal(messages.text('Software preparation interrupted; retry when storage is available'), 'Cài phần mềm bị gián đoạn. Hãy kiểm tra dung lượng lưu trữ rồi thử lại.');
 assert.equal(messages.text(messages.text(addressError)), messages.text(addressError));

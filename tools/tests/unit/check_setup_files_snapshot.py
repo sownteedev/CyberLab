@@ -14,6 +14,25 @@ from cyberlab.runtime.machine_setup import setup_payload
 
 
 class SetupFilesSnapshotChecks(unittest.TestCase):
+    def test_large_import_reaches_home_and_system_setup_payload(self):
+        import base64
+        from cyberlab.lab.package import MAX_ASSET, MAX_PACKAGE
+        from cyberlab_ipc import MAX_DRAFT_ASSET, MAX_DRAFT_PACKAGE, MAX_LAB_PACKAGE
+        from cyberlab.lab.exchange import MAX_ARCHIVE
+        self.assertEqual((MAX_ASSET, MAX_PACKAGE, MAX_ARCHIVE),
+                         (MAX_DRAFT_ASSET, MAX_DRAFT_PACKAGE, MAX_LAB_PACKAGE))
+        document = definition()
+        document['nodes'][0]['files'] = [{'source': 'assets/home', 'target': '.'}]
+        document['nodes'][0]['setup'] = {'files': [{'source': 'assets/system', 'target': '/srv/project',
+            'owner': 'root', 'group': 'root', 'mode': '0644'}]}
+        data = b'\x89PNG\x00' + b'a' * (2 * 1024 * 1024)
+        lab = load_snapshot({'definition': json.dumps(document), 'assets': {
+            'assets/home': None, 'assets/home/diagram.png': data, 'assets/system': data}})
+        payload = json.loads(setup_payload(lab.nodes[0]))
+        files = [entry for entry in payload['entries'] if entry['data'] is not None]
+        self.assertEqual(len(files), 2)
+        self.assertTrue(all(base64.b64decode(entry['data']) == data for entry in files))
+
     def test_ui_directory_child_override_rename_delete_snapshot(self):
         root = Path(__file__).resolve().parents[3]
         script = r"""

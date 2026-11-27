@@ -39,6 +39,7 @@ fail() {{ printf '%s\\n' "$*" >&2; exit 1; }}
             ('ubuntu', 'debian', 'debian apt-get'),
             ('linuxmint', 'ubuntu debian', 'debian apt-get'),
             ('debian', '', 'debian apt-get'),
+            ('kali', 'debian', 'debian apt-get'),
             ('arch', '', 'arch pacman'),
             ('endeavouros', 'arch', 'arch pacman'),
             ('fedora', '', 'fedora dnf'),
@@ -55,6 +56,66 @@ fail() {{ printf '%s\\n' "$*" >&2; exit 1; }}
         result = self.shell('ID=nixos; ID_LIKE=""; distro_name=NixOS; classify_distribution')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('NixOS', result.stderr)
+
+    def test_kali_abi_transition_is_explained_without_applying(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.shell(f'''
+source "$ROOT/tools/install/transactions.sh"
+family=debian; ID=kali; mode=install; allow_dependency_upgrades=yes
+missing_packages=(quickshell xpra)
+apt-get() {{
+    [[ $1 == --simulate ]] || fail 'must never apply packages'
+    printf '%s\\n' 'Remv libpyside6-py3-6.10 [6.10.2]' 'Remv libshiboken6-py3-6.10 [6.10.2]' 'Inst libpyside6-py3-6.11 (6.11.0 kali-rolling [amd64])'
+    return 100
+}}
+resolve_package_transaction {shlex.quote(directory + '/plan.txt')}
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('libpyside6-py3-6.10', result.stderr)
+        self.assertIn('apt-get -s full-upgrade', result.stderr)
+        self.assertIn('--allow-dependency-upgrades', result.stderr)
+
+    def test_apt_simulation_removal_records_are_rejected_even_on_success(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.shell(f'''
+source "$ROOT/tools/install/transactions.sh"
+family=debian; ID=kali; missing_packages=(quickshell)
+apt-get() {{ printf '%s\\n' 'Remv important-desktop [1.0]'; }}
+resolve_package_transaction {shlex.quote(directory + '/plan.txt')}
+''')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('important-desktop', result.stderr)
+
+    def test_suse_transaction_reads_saved_resolver_output(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'plan.xml'
+            output.write_text('<install-summary><to-install><solvable name="quickshell" edition="0.3.2"/></to-install></install-summary>')
+            result = self.shell(f'''
+source "$ROOT/tools/install/transactions.sh"
+family=suse
+transaction_records {shlex.quote(str(output))} < /dev/null
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'install\tquickshell\t0.3.2')
+
+    def test_apt_success_does_not_retry_without_removal_guard(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.shell(f'''
+source "$ROOT/tools/install/transactions.sh"
+family=debian; ID=ubuntu; missing_packages=(quickshell)
+apt-get() {{
+    [[ " $* " == *' --simulate '* && " $* " == *' --no-remove '* ]] || fail 'unsafe resolver call'
+    printf '%s\\n' 'Inst quickshell (0.3.2 Ubuntu [amd64])'
+}}
+resolve_package_transaction {shlex.quote(directory + '/plan.txt')}
+transaction_records {shlex.quote(directory + '/plan.txt')}
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'install\tquickshell\t0.3.2')
 
     def test_update_package_for_clean_desktops(self):
         for family, package in [('debian', 'pkexec'), ('arch', 'polkit'),
