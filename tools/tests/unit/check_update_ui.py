@@ -207,11 +207,13 @@ class UpdateProtocolTests(unittest.TestCase):
             process.mkdir()
             command = process / "cmdline"
             with patch.object(upgrade, "PROC", Path(directory)):
-                command.write_bytes(b"/usr/bin/qs\0--path\0/var/tmp/cl-updater-fixture/studio\0")
-                upgrade.check_studio_closed()
-                command.write_bytes(b"/usr/bin/qs\0--path\0/usr/lib/cyberlab/venv/cyberlab_studio/studio\0")
-                with self.assertRaisesRegex(ValueError, "Close CyberLab Studio"):
-                    upgrade.check_studio_closed()
+                for executable in ("/usr/bin/qs", "/usr/lib/cyberlab/gui-runtime/bin/quickshell"):
+                    with self.subTest(executable=executable):
+                        command.write_bytes(f"{executable}\0--path\0/var/tmp/cl-updater-fixture/studio\0".encode())
+                        upgrade.check_studio_closed()
+                        command.write_bytes(f"{executable}\0--path\0/usr/lib/cyberlab/venv/cyberlab_studio/studio\0".encode())
+                        with self.assertRaisesRegex(ValueError, "Close CyberLab Studio"):
+                            upgrade.check_studio_closed()
 
 if __name__ == "__main__":
     unittest.main()

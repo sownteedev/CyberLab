@@ -73,7 +73,7 @@ def recovery_signals():
             signal.signal(signum, handler)
 
 def check_studio_closed():
-    """Inspect every visible process, not only configured users; never signal Studio."""
+    """Inspect all users; identify Quickshell by its config, not its runtime path."""
     found = []
     for process in PROC.iterdir():
         if not process.name.isdecimal():
@@ -92,7 +92,7 @@ def check_studio_closed():
                             or "cyberlab-studio" in argument.lower()
                             or ("cyberlab" in argument.lower() and
                                 (is_shell or "run_studio" in argument.lower()))
-                            for argument in arguments)
+                            for argument in (arguments[1:] if is_shell else arguments))
             if is_studio:
                 found.append(f"PID {process.name}, UID {process.stat().st_uid}")
         except (FileNotFoundError, ProcessLookupError):

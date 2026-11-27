@@ -258,6 +258,23 @@ class UpgradeChecks(unittest.TestCase):
         self.add_process(1234, ['/usr/bin/qs', '--path', '/home/other/SownteeShell'])
         updater.upgrade(self.wheel, 1000, self.backup)
 
+    def test_private_runtime_update_window_is_allowed(self):
+        self.add_process(1234, ['/usr/lib/cyberlab/gui-runtime/bin/quickshell',
+                                '--path', '/var/tmp/cl-updater-fixture/studio'])
+        updater.upgrade(self.wheel, 1000, self.backup)
+        self.assertTrue((self.proc / '1234').exists())
+
+    def test_private_runtime_studio_still_blocks_update(self):
+        self.add_process(1234, ['/usr/lib/cyberlab/gui-runtime/bin/quickshell',
+                                '--path', '/var/tmp/cl-updater-fixture/studio'])
+        self.add_process(5678, ['/usr/lib/cyberlab/gui-runtime/bin/quickshell',
+                                '--path', '/usr/lib/cyberlab/venv/lib/python3.12/site-packages/cyberlab_studio/studio'])
+        with self.assertRaisesRegex(ValueError, 'Studio.*5678') as error:
+            updater.upgrade(self.wheel, 1000, self.backup)
+        self.assertNotIn('1234', str(error.exception))
+        self.assert_not_stopped()
+        self.assertTrue((self.proc / '5678').exists())
+
     def test_launcher_process_blocks_before_quickshell_starts(self):
         self.add_process(1234, ['/usr/bin/python', '-I', '-m', 'cyberlab_studio.launcher'])
         with self.assertRaisesRegex(ValueError, 'Studio'):
