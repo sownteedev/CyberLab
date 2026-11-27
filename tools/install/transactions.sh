@@ -115,7 +115,7 @@ transaction_records() {
 review_package_transaction() {
     local records=$1 action package version previous comparison
     local count=0
-    local upgrades_needed=no
+    dependency_upgrades_needed=no
     approved_packages=()
     while IFS=$'\t' read -r action package version; do
         [[ $action == install || $action == upgrade ]] || fail "Package removal/replacement/downgrade or unknown transaction detected ($action). No packages were installed."
@@ -143,7 +143,7 @@ review_package_transaction() {
                     ;;
             esac
             printf 'UPGRADE %s: %s -> %s\n' "$package" "$previous" "$version"
-            upgrades_needed=yes
+            dependency_upgrades_needed=yes
         else
             printf 'INSTALL %s %s\n' "$package" "$version"
         fi
@@ -155,22 +155,27 @@ review_package_transaction() {
         count=$((count + 1))
     done < "$records"
     ((count > 0)) || fail 'The requested transaction has no readable package changes. Refresh repository metadata and retry; nothing was installed.'
-    if [[ $upgrades_needed == yes && $allow_dependency_upgrades != yes ]]; then
-        if [[ ${mode:-install} == plan ]]; then
-            printf '%s\n' 'REQUIRES APPROVAL: applying this plan needs --allow-dependency-upgrades.'
-        else
-            fail 'The displayed transaction upgrades existing packages. Nothing was installed. Review it and use --allow-dependency-upgrades only if intended.'
-        fi
+    if [[ $dependency_upgrades_needed == yes && $allow_dependency_upgrades != yes && ${mode:-install} == plan ]]; then
+        printf '%s\n' 'REQUIRES APPROVAL: khi cài sẽ hỏi xác nhận nâng dependency; chạy không tương tác cần --allow-dependency-upgrades --yes.'
     fi
 }
 
 confirm_package_transaction() {
     local answer
+    if [[ ${dependency_upgrades_needed:-no} == yes && $allow_dependency_upgrades != yes ]]; then
+        [[ $assume_yes != yes && -t 0 ]] || fail 'Giao dịch cần nâng cấp dependency. Chưa cài gói nào. Hãy chạy trong terminal để xác nhận, hoặc xem --plan rồi dùng --allow-dependency-upgrades --yes khi cài không tương tác.'
+    fi
     if [[ $assume_yes == yes ]]; then return; fi
     [[ -t 0 ]] || fail 'No interactive terminal. Review --plan first; use --yes to approve the package transaction explicitly.'
-    printf 'Install exactly the reviewed dependencies? [y/N] '
-    read -r answer || fail 'Package installation cancelled.'
-    [[ $answer == y || $answer == Y || $answer == yes ]] || fail 'Package installation cancelled; no packages were changed.'
+    if [[ ${dependency_upgrades_needed:-no} == yes ]]; then
+        printf '%s\n' 'CyberLab cần cài/nâng cấp các gói trong danh sách trên; không nâng cấp toàn hệ điều hành, không gỡ hoặc hạ phiên bản gói.'
+        printf 'Cho phép cài/nâng cấp các gói trên để tiếp tục? [y/N] '
+    else
+        printf 'Cài các gói trong danh sách trên? [y/N] '
+    fi
+    read -r answer || fail 'Đã hủy cài dependency; chưa thay đổi gói nào trong giao dịch này.'
+    [[ $answer == y || $answer == Y || $answer == yes ]] || fail 'Đã hủy cài dependency; chưa thay đổi gói nào trong giao dịch này.'
+    if [[ ${dependency_upgrades_needed:-no} == yes ]]; then allow_dependency_upgrades=yes; fi
 }
 
 apply_package_transaction() {
@@ -214,6 +219,7 @@ apply_package_transaction() {
 
 guarded_package_install() {
     local stage
+    local allow_dependency_upgrades=$allow_dependency_upgrades
     stage="$(mktemp -d /var/tmp/cyberlab-dependencies-XXXXXXXX)"
     printf 'Dependency plan and receipts: %s\n' "$stage"
     package_inventory > "$stage/installed-before.txt"

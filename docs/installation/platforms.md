@@ -44,8 +44,11 @@ curl -fsSL https://raw.githubusercontent.com/sownteedev/CyberLab/master/install.
 
 Cờ này là chấp thuận nguồn bên thứ ba và khóa ký được chỉ rõ, không phải bỏ qua
 kiểm tra chữ ký. Bộ cài vẫn xem xét giao dịch gói và hỏi xác nhận. Nếu cần nâng
-dependency đã có, xem kế hoạch rồi mới dùng `--allow-dependency-upgrades`;
-không mặc định thêm cờ này vào hướng dẫn cài máy sử dụng hằng ngày.
+dependency đã có, bộ cài hỏi xác nhận ngay trong terminal sau khi hiển thị kế
+hoạch; không cần chạy lại với cờ. Nhấn Enter hoặc trả lời `n` để hủy giao dịch.
+Khi cài không tương tác, phải xem kế hoạch trước rồi chỉ dùng
+`--allow-dependency-upgrades --yes` nếu chấp thuận. `--yes` riêng lẻ không cho
+phép nâng dependency; mọi chế độ vẫn chặn xóa hoặc hạ phiên bản gói.
 
 ### Ubuntu 24.04 / Linux Mint 22.x
 

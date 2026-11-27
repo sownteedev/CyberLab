@@ -207,7 +207,6 @@ check_python_candidate() {
         suse) return ;;
     esac
     if [[ -n $bootstrap ]] && "$bootstrap" -I -c 'import sys; sys.exit(sys.version_info >= (3, 12))'; then
-        [[ $allow_dependency_upgrades == yes || ${mode:-install} == plan ]] || fail 'The installed Python is older than 3.12. Updating it needs explicit --allow-dependency-upgrades after reviewing the package plan.'
         case "$family" in
             arch) forced_packages+=(python) ;;
             debian) forced_packages+=(python3) ;;
@@ -287,7 +286,6 @@ collect_native_packages() {
         bootstrap_python="$(command -v python3 || true)"
         if [[ -n $bootstrap_python ]] && "$bootstrap_python" -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
             if ! "$bootstrap_python" -B -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user" native-version; then
-                [[ $allow_dependency_upgrades == yes ]] || fail 'The installed native Quickshell is incompatible. No host packages were changed. Review --plan --allow-dependency-upgrades before upgrading its dependencies.'
                 package_installed quickshell || fail 'The incompatible Quickshell is not the stable distro package; repair that installation explicitly. Custom/git runtimes will not be replaced.'
                 refresh_quickshell=yes
             fi

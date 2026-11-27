@@ -57,6 +57,172 @@ fail() {{ printf '%s\\n' "$*" >&2; exit 1; }}
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('NixOS', result.stderr)
 
+    def dependency_confirmation(self, *, distro='ubuntu', answer=None,
+                                approve='no', assume_yes='no', mode='install',
+                                action='upgrade', version='2'):
+        script = f'''
+source {shlex.quote(str(ROOT / 'tools/install/transactions.sh'))}
+fail() {{ printf '%s\\n' "$*" >&2; exit 1; }}
+family=debian; ID={distro}; mode={mode}
+allow_dependency_upgrades={approve}; assume_yes={assume_yes}
+package_installed() {{ [[ {action} != install ]]; }}
+package_version() {{ printf '1'; }}
+dpkg() {{
+    case "$3" in
+        lt) (( $2 < $4 )) ;;
+        eq) (( $2 == $4 )) ;;
+        *) exit 99 ;;
+    esac
+}}
+review_package_transaction <(printf '{action}\\txserver-common\\t{version}\\n')
+if [[ $mode == plan ]]; then exit 0; fi
+confirm_package_transaction
+printf 'APPROVED: %s\\n' "${{approved_packages[*]}}"
+'''
+        if answer is None:
+            return subprocess.run(['/bin/bash', '-eu', '-c', script],
+                                  stdin=subprocess.DEVNULL, capture_output=True,
+                                  text=True, timeout=5, start_new_session=True)
+        master, slave = pty.openpty()
+        try:
+            with subprocess.Popen(['/bin/bash', '-eu', '-c', script], stdin=slave,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True) as process:
+                os.write(master, answer)
+                output, error = process.communicate(timeout=5)
+                return subprocess.CompletedProcess(process.args, process.returncode,
+                                                   output, error)
+        finally:
+            os.close(slave)
+            os.close(master)
+
+    def test_dependency_upgrades_can_be_approved_at_terminal_without_flag(self):
+        for distro in ('ubuntu', 'kali'):
+            with self.subTest(distro=distro):
+                result = self.dependency_confirmation(distro=distro, answer=b'y\n')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('APPROVED: xserver-common=2', result.stdout)
+                self.assertIn('[y/N]', result.stdout)
+
+    def test_dependency_upgrade_refusal_empty_and_eof_never_approve(self):
+        for answer in (b'n\n', b'\n', b'\x04'):
+            with self.subTest(answer=answer):
+                result = self.dependency_confirmation(answer=answer)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('[y/N]', result.stdout)
+                self.assertNotIn('APPROVED:', result.stdout)
+
+    def test_unattended_upgrades_require_both_explicit_flags(self):
+        for approve, assume_yes, expected in (
+            ('no', 'no', 1), ('no', 'yes', 1), ('yes', 'no', 1), ('yes', 'yes', 0),
+        ):
+            with self.subTest(approve=approve, assume_yes=assume_yes):
+                result = self.dependency_confirmation(approve=approve, assume_yes=assume_yes)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertEqual('APPROVED:' in result.stdout, expected == 0)
+
+    def test_dependency_plan_does_not_prompt_or_approve(self):
+        result = self.dependency_confirmation(mode='plan')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('REQUIRES APPROVAL', result.stdout)
+        self.assertNotIn('[y/N]', result.stdout)
+        self.assertNotIn('APPROVED:', result.stdout)
+
+    def test_package_removal_or_downgrade_cannot_be_confirmed(self):
+        for action, version in (('remove', '2'), ('upgrade', '0')):
+            with self.subTest(action=action):
+                result = self.dependency_confirmation(action=action, version=version,
+                                                      approve='yes', assume_yes='yes')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('APPROVED:', result.stdout)
+
+    def test_new_dependencies_still_require_confirmation_without_yes(self):
+        result = self.dependency_confirmation(action='install', answer=b'y\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('[y/N]', result.stdout)
+        self.assertIn('APPROVED: xserver-common=2', result.stdout)
+
+    def test_old_python_is_added_to_review_before_upgrade_consent(self):
+        result = self.shell('''
+family=debian; mode=install; allow_dependency_upgrades=no; forced_packages=()
+select_python() { return 1; }
+python3() { return 0; }
+apt-cache() { printf 'Candidate: 3.12.3\n'; }
+dpkg() { [[ $* == '--compare-versions 3.12.3 ge 3.12' ]]; }
+check_python_candidate
+printf 'REVIEW: %s\n' "${forced_packages[*]}"
+printf 'CONSENT: %s\n' "$allow_dependency_upgrades"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('REVIEW: python3', result.stdout)
+        self.assertIn('CONSENT: no', result.stdout)
+
+    def test_guarded_upgrade_rechecks_plan_and_scopes_terminal_consent(self):
+        import tempfile
+        for changed_plan in (False, True):
+            with self.subTest(changed_plan=changed_plan), tempfile.TemporaryDirectory() as directory:
+                script = f'''
+source {shlex.quote(str(ROOT / 'tools/install/transactions.sh'))}
+fail() {{ printf '%s\\n' "$*" >&2; exit 1; }}
+family=debian; mode=install; allow_dependency_upgrades=no; assume_yes=no
+mktemp() {{ printf '%s' {shlex.quote(directory)}; }}
+package_inventory() {{ printf 'fixture 1\\n'; }}
+package_installed() {{ return 0; }}
+package_version() {{ printf '1'; }}
+dpkg() {{ return 1; }}
+resolve_package_transaction() {{
+    local version=2
+    if [[ $1 == */rechecked.txt && {str(changed_plan)} == True ]]; then version=3; fi
+    printf 'upgrade\\tfixture\\t%s\\n' "$version" > "$1"
+}}
+transaction_records() {{ cat "$1"; }}
+apply_package_transaction() {{
+    [[ $allow_dependency_upgrades == yes ]] || fail 'missing upgrade consent'
+    printf 'APPLIED: %s\\n' "${{approved_packages[*]}}"
+}}
+guarded_package_install
+printf 'OUTSIDE CONSENT: %s\\n' "$allow_dependency_upgrades"
+'''
+                master, slave = pty.openpty()
+                try:
+                    with subprocess.Popen(['/bin/bash', '-eu', '-c', script], stdin=slave,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          text=True) as process:
+                        os.write(master, b'y\n')
+                        output, error = process.communicate(timeout=5)
+                        self.assertEqual(process.returncode, 1 if changed_plan else 0, output + error)
+                        if changed_plan:
+                            self.assertNotIn('APPLIED:', output)
+                            self.assertIn('Dependency resolution changed', error)
+                        else:
+                            self.assertIn('APPLIED: fixture=2', output)
+                            self.assertIn('OUTSIDE CONSENT: no', output)
+                finally:
+                    os.close(slave)
+                    os.close(master)
+
+    def test_incompatible_distro_quickshell_reaches_review_without_upgrade_flag(self):
+        result = self.shell('''
+family=debian; mode=install; allow_dependency_upgrades=no; gui_runtime=native
+distro_name=fixture; desktop_user=fixture
+configure_packages() { host_packages=(); }
+check_python_candidate() { :; }
+collect_terminal_package() { :; }
+collect_update_package() { :; }
+collect_gui_package() { :; }
+native_quickshell_present() { return 0; }
+package_available() { return 1; }
+package_installed() { [[ $1 == quickshell ]]; }
+python3() { [[ $* != *native-version* ]]; }
+select_docker_packages() { docker_packages=(); }
+collect_native_packages
+printf 'REVIEW: %s\n' "${missing_packages[*]}"
+printf 'CONSENT: %s\n' "$allow_dependency_upgrades"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('REVIEW: quickshell', result.stdout)
+        self.assertIn('CONSENT: no', result.stdout)
+
     def test_kali_abi_transition_is_explained_without_applying(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

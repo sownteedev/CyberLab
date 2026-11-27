@@ -95,8 +95,15 @@ xong, chỉ tiếp tục cài mới khi không có dấu vết cài dở nào kh
 | `--check` | Kiểm tra môi trường native/QML, không triển khai |
 | `--deps-only` | Chuẩn bị dependency hệ thống, không cài dịch vụ/kho CyberLab |
 | `--no-deps` | Cài ứng dụng với dependency đã được chuẩn bị |
-| `--allow-dependency-upgrades` | Chấp thuận giao dịch nâng dependency đã xem xét; không phải nâng toàn OS |
+| `--allow-dependency-upgrades` | Chấp thuận trước việc nâng dependency đã xem xét; mặc định hỏi trong terminal, không nâng toàn OS |
 | `--update` | Cập nhật ứng dụng đang cài từ checkout này |
+
+Lệnh cài mặc định qua link cũng hỏi xác nhận nếu cần nâng dependency đã có.
+Xem danh sách gói rồi nhập `y` để tiếp tục, hoặc `n`/Enter để hủy giao dịch.
+Không có terminal thì bộ cài không tự đồng ý: sau khi xem `--plan`, cần cả
+`--allow-dependency-upgrades --yes` cho giao dịch nâng gói không tương tác.
+Trên Kali, giao dịch yêu cầu gỡ/thay thư viện do chuyển ABI vẫn bị chặn;
+đây không phải trường hợp chỉ cần đồng ý nâng phiên bản.
 
 Xpra là fallback tùy khả năng kho gói; thiếu Xpra không chặn toàn bộ Studio.
 Nếu đồng thời không có native display dùng được thì GUI trong node không hoạt

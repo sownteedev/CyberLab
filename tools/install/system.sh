@@ -15,7 +15,7 @@ usage() {
     cat <<'EOF'
 Usage: bash install.sh [OPTIONS]
 
-No options: install missing native packages and CyberLab on a new machine.
+No options: review dependencies, confirm any upgrades, then install CyberLab.
   --plan           Resolve and show the package plan; no package/service changes
   --check          Check versions, native QML and Docker readiness; never start services
   --no-deps        Use existing packages; do not call a package manager
@@ -23,13 +23,14 @@ No options: install missing native packages and CyberLab on a new machine.
   --deps-only      Install prerequisites, but not CyberLab or its service
   --update         Guarded app-only update; never changes Qt or host packages
   --offline        Only with --update: administrator already stopped the legacy daemon
-  --allow-dependency-upgrades  Permit reviewed dependency upgrades, never removals/downgrades
+  --allow-dependency-upgrades  Preapprove reviewed upgrades (otherwise asked interactively)
   --enable-quickshell-repo     Opt in to the reviewed native PPA/COPR/OBS source for this distro
   --yes            Accept the displayed package plan (upgrades still need the flag above)
   --user NAME      Desktop account (defaults to the sudo caller)
   --help           Show this help
 
 Uses enabled distro repositories only: pacman, apt, dnf or zypper.
+Dependency upgrades require consent; removals and downgrades are always rejected.
 An optional third-party Quickshell source requires --enable-quickshell-repo.
 Missing Quickshell: offer a matching source with explicit consent on interactive installs.
 --yes approves package transactions, never an external repository.
