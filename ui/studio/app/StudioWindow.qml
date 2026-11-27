@@ -108,6 +108,7 @@ ApplicationWindow {
     palette: Studio.Theme.controlPalette
     font.family: Studio.Theme.fontFamily
     font.pixelSize: Studio.Theme.bodyMedium
+    flags: Qt.Window | Qt.FramelessWindowHint
     height: smoke ? (Number(Quickshell.env("CYBERLAB_STUDIO_SMOKE_HEIGHT")) || (Quickshell.env("CYBERLAB_STUDIO_SMOKE_COMPACT") === "1" ? 700 : 820)) : desktopGeometry.height
     minimumHeight: smoke ? 0 : desktopGeometry.minimumHeight
     minimumWidth: smoke ? 0 : desktopGeometry.minimumWidth
@@ -133,6 +134,7 @@ ApplicationWindow {
             windowMaximized: window.visibility === Window.Maximized
 
             onCloseRequested: window.close()
+            onMinimizeRequested: window.showMinimized()
             onMoveRequested: window.startSystemMove()
             onNavigationRequested: index => window.navigate(index)
             onMaximizeRequested: {
@@ -160,6 +162,16 @@ ApplicationWindow {
         } else {
             window.closeAccepted();
         }
+    }
+
+    WindowResizeHandles {
+        parent: window.contentItem
+        y: -window.header.height
+        width: window.width
+        height: window.height
+        z: 100
+        enabled: window.visibility === Window.Windowed
+        onResizeRequested: edges => window.startSystemResize(edges)
     }
 
     StudioViewport {

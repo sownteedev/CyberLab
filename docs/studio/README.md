@@ -57,6 +57,13 @@ ghi đè input vì một request trước đó vừa xong.
 
 ## 4. Theme và tài nguyên
 
+Studio dùng thanh tiêu đề nội bộ (`Qt.FramelessWindowHint`) với nút Thu nhỏ,
+Phóng to/Khôi phục và Đóng. Kéo vùng trống trên thanh để di chuyển; kéo cạnh
+hoặc góc để đổi kích thước khi cửa sổ không phóng to. Các thao tác dùng API
+cửa sổ của Qt, không gọi lệnh riêng của WM/DE. Đóng vẫn kiểm tra nội dung chưa
+lưu; thu nhỏ không đóng Studio hoặc dừng phiên thực hành. Cần nghiệm thu
+riêng trên desktop X11/Wayland đích vì việc quản lý cửa sổ do compositor xử lý.
+
 [`Theme.qml`](../../ui/studio/theme/Theme.qml) là nguồn token dùng chung.
 Duy trì sáng/tối, zoom, chữ tiếng Việt dài và cửa sổ nhỏ; trạng thái chọn,
 lỗi, disabled, focus phải phân biệt được, không chỉ dựa vào màu.

@@ -8,6 +8,7 @@ Rectangle {
     required property bool maximized
 
     signal closeRequested
+    signal minimizeRequested
     signal maximizeRequested
 
     border.color: Studio.Theme.outlineVariant
@@ -24,6 +25,16 @@ Rectangle {
         anchors.fill: parent
         spacing: Studio.Theme.space4
 
+        Studio.StudioIconButton {
+            Layout.preferredHeight: Studio.Theme.controlHeight
+            Layout.preferredWidth: Studio.Theme.controlHeight
+            description: "Thu nhỏ cửa sổ"
+            iconName: "remove"
+            iconSize: Studio.Theme.iconSmall
+            objectName: "minimizeWindowButton"
+
+            onClicked: controls.minimizeRequested()
+        }
         Studio.StudioIconButton {
             Layout.preferredHeight: Studio.Theme.controlHeight
             Layout.preferredWidth: Studio.Theme.controlHeight

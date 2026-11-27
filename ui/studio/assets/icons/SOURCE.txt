@@ -6,3 +6,4 @@ Bundled locally for offline use; no fonts or runtime downloads.
 more_horiz.svg added from the same upstream on 2026-10-26, unchanged path.
 crop_square.svg and filter_none.svg added on 2026-10-28, unchanged paths.
 apps.svg added from the same upstream on 2026-11-05, unchanged path.
+remove.svg is a locally drawn horizontal bar for the minimize control, not an upstream Material Symbols path.

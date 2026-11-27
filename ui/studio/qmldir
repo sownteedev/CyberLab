@@ -53,6 +53,7 @@ QuizService 1.0 services/QuizService.qml
 QuizQuestionCard 1.0 views/practice/QuizQuestionCard.qml
 DraftService 1.0 services/DraftService.qml
 StudioWindow 1.0 app/StudioWindow.qml
+WindowResizeHandles 1.0 app/WindowResizeHandles.qml
 StudioViewport 1.0 app/StudioViewport.qml
 StudioContent 1.0 app/StudioContent.qml
 StudioDialogs 1.0 app/StudioDialogs.qml

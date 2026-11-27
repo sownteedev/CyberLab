@@ -7,6 +7,7 @@ Item {
     property var closeButton: null
     required property var findItem
     property var maximizeButton: null
+    property var minimizeButton: null
     property size restoredSize: Qt.size(0, 0)
     property string savedDocumentation: ""
     property string screenshotPath: ""
@@ -38,12 +39,15 @@ Item {
         if (!verify(studioWindow.smoke && studioWindow.api.demo, "window checks require the isolated smoke runtime"))
             return;
         maximizeButton = findItem(studioWindow.header, "maximizeWindowButton");
+        minimizeButton = findItem(studioWindow.header, "minimizeWindowButton");
         closeButton = findItem(studioWindow.header, "closeWindowButton");
-        if (!verify(maximizeButton && closeButton, "window controls are present"))
+        if (!verify(minimizeButton && maximizeButton && closeButton, "window controls are present"))
             return;
-        if (!verify(maximizeButton.width >= 48 && maximizeButton.height >= 48 && closeButton.width >= 48 && closeButton.height >= 48, "window controls retain 48px targets"))
+        if (!verify(minimizeButton.width >= 48 && minimizeButton.height >= 48 && maximizeButton.width >= 48 && maximizeButton.height >= 48 && closeButton.width >= 48 && closeButton.height >= 48, "window controls retain 48px targets"))
             return;
-        if (!verify(maximizeButton.enabled && closeButton.enabled && closeButton.Accessible.name.length > 0, "window controls remain accessible"))
+        if (!verify(minimizeButton.enabled && maximizeButton.enabled && closeButton.enabled && minimizeButton.Accessible.name.length > 0 && closeButton.Accessible.name.length > 0, "window controls remain accessible"))
+            return;
+        if (!verify((studioWindow.flags & Qt.FramelessWindowHint) !== 0, "Studio uses the app title bar instead of native window decorations"))
             return;
         if (!verifyPageSpacing())
             return;
@@ -150,6 +154,16 @@ Item {
                 if (target.visibility !== Window.Windowed)
                     return;
                 if (!checks.verify(target.width === checks.restoredSize.width && target.height === checks.restoredSize.height && checks.maximizeButton.iconName === "crop_square", "Restore recovers the original window size"))
+                    return;
+                checks.minimizeButton.clicked();
+                checks.stage = 20;
+            } else if (checks.stage === 20) {
+                if (target.visibility !== Window.Minimized)
+                    return;
+                target.showNormal();
+                checks.stage = 21;
+            } else if (checks.stage === 21) {
+                if (target.visibility !== Window.Windowed)
                     return;
                 target.editor.documentationText = checks.savedDocumentation + "\nUnsaved window smoke edit.";
                 target.editor.documentationDirty = true;

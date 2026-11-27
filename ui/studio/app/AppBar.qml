@@ -16,6 +16,7 @@ ToolBar {
     property bool updateAvailable: false
 
     signal closeRequested
+    signal minimizeRequested
     signal navigationRequested(int index)
     signal maximizeRequested
     signal moveRequested
@@ -127,6 +128,7 @@ ToolBar {
             spacing: bar.compact ? Studio.Theme.space4 : Studio.Theme.space8
 
             Studio.StatusBadge {
+                visible: bar.width >= 360
                 Accessible.description: "System D-Bus"
                 bgColor: bar.connected ? Studio.Theme.successContainer : Studio.Theme.errorContainer
                 compact: bar.width < 1100
@@ -166,6 +168,7 @@ ToolBar {
                 maximized: bar.windowMaximized
 
                 onCloseRequested: bar.closeRequested()
+                onMinimizeRequested: bar.minimizeRequested()
                 onMaximizeRequested: bar.maximizeRequested()
             }
         }

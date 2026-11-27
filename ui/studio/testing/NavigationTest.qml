@@ -25,8 +25,15 @@ Item {
         SignalSpy { id: settingsSpy; target: bar; signalName: "settingsRequested" }
         SignalSpy { id: refreshSpy; target: bar; signalName: "refreshRequested" }
         SignalSpy { id: maximizeSpy; target: bar; signalName: "maximizeRequested" }
+        SignalSpy { id: minimizeSpy; target: bar; signalName: "minimizeRequested" }
         SignalSpy { id: closeSpy; target: bar; signalName: "closeRequested" }
         SignalSpy { id: moveSpy; target: bar; signalName: "moveRequested" }
+        Studio.WindowResizeHandles {
+            id: resizeHandles
+            x: 60; y: 160; width: 220; height: 180
+            visible: false
+        }
+        SignalSpy { id: resizeSpy; target: resizeHandles; signalName: "resizeRequested" }
 
         TestCase {
             name: "StudioNavigation"
@@ -44,8 +51,33 @@ Item {
                 window.requestActivate();
                 tryCompare(window, "active", true);
                 navigationSpy.clear(); settingsSpy.clear(); refreshSpy.clear();
-                maximizeSpy.clear(); closeSpy.clear(); moveSpy.clear();
+                maximizeSpy.clear(); minimizeSpy.clear(); closeSpy.clear(); moveSpy.clear();
+                resizeHandles.visible = false;
+                resizeHandles.enabled = true;
+                resizeSpy.clear();
                 waitForRendering(bar);
+            }
+            function test_resize_edges_and_corners() {
+                resizeHandles.visible = true;
+                const cases = [
+                    [1, 90, Qt.LeftEdge], [219, 90, Qt.RightEdge],
+                    [110, 1, Qt.TopEdge], [110, 179, Qt.BottomEdge],
+                    [1, 1, Qt.TopEdge | Qt.LeftEdge], [219, 1, Qt.TopEdge | Qt.RightEdge],
+                    [1, 179, Qt.BottomEdge | Qt.LeftEdge], [219, 179, Qt.BottomEdge | Qt.RightEdge]
+                ];
+                for (const entry of cases) {
+                    resizeSpy.clear();
+                    mouseClick(resizeHandles, entry[0], entry[1]);
+                    compare(resizeSpy.count, 1);
+                    compare(resizeSpy.signalArguments[0][0], entry[2]);
+                }
+                resizeSpy.clear();
+                mouseClick(resizeHandles, 110, 90);
+                mouseClick(resizeHandles, 1, 1, Qt.RightButton);
+                compare(resizeSpy.count, 0);
+                resizeHandles.enabled = false;
+                mouseClick(resizeHandles, 1, 1);
+                compare(resizeSpy.count, 0);
             }
             function test_selection_tracks_accepted_route_only() {
                 checks.acceptNavigation = false;
@@ -207,9 +239,11 @@ Item {
                 compare(navigationSpy.count, 0);
                 verify(!findChild(bar, "refreshButton").enabled);
                 mouseClick(findChild(bar, "openSettingsButton"));
+                mouseClick(findChild(bar, "minimizeWindowButton"));
                 mouseClick(findChild(bar, "maximizeWindowButton"));
                 mouseClick(findChild(bar, "closeWindowButton"));
                 compare(settingsSpy.count, 1);
+                compare(minimizeSpy.count, 1);
                 compare(maximizeSpy.count, 1);
                 compare(closeSpy.count, 1);
                 compare(moveSpy.count, 0);
@@ -224,7 +258,7 @@ Item {
                 compare(moveSpy.count, 2);
                 mouseClick(brand, 10, 10, Qt.RightButton);
                 compare(moveSpy.count, 2);
-                for (const name of ["navigationItem-0", "navigationItem-1", "navigationItem-2", "openSettingsButton", "refreshButton", "maximizeWindowButton", "closeWindowButton"]) {
+                for (const name of ["navigationItem-0", "navigationItem-1", "navigationItem-2", "openSettingsButton", "refreshButton", "minimizeWindowButton", "maximizeWindowButton", "closeWindowButton"]) {
                     const control = findChild(bar, name);
                     mouseClick(control);
                     compare(moveSpy.count, 2, name + " must not move the window");
@@ -253,9 +287,9 @@ Item {
                 mouseClick(tab(2));
                 fuzzyCompare(navigation.width - indicator.x - indicator.width, indicator.y, 1);
                 const controls = findChild(bar, "windowControls");
-                const maximize = findChild(controls, "maximizeWindowButton").background;
+                const minimize = findChild(controls, "minimizeWindowButton").background;
                 const close = findChild(controls, "closeWindowButton").background;
-                const first = maximize.mapToItem(controls, 0, 0, maximize.width, maximize.height);
+                const first = minimize.mapToItem(controls, 0, 0, minimize.width, minimize.height);
                 const last = close.mapToItem(controls, 0, 0, close.width, close.height);
                 fuzzyCompare(first.x, first.y, 1);
                 fuzzyCompare(controls.height - first.y - first.height, first.x, 1);
@@ -293,7 +327,7 @@ Item {
                 const navigation = findChild(bar, "studioNavigation");
                 const expectedHeight = Studio.Theme.appBarHeight + (bar.compact ? Studio.Theme.controlHeight + Studio.Theme.space8 : 0);
                 compare(bar.height, expectedHeight);
-                for (const name of ["navigationItem-0", "navigationItem-1", "navigationItem-2", "openSettingsButton", "refreshButton", "maximizeWindowButton", "closeWindowButton"]) {
+                for (const name of ["navigationItem-0", "navigationItem-1", "navigationItem-2", "openSettingsButton", "refreshButton", "minimizeWindowButton", "maximizeWindowButton", "closeWindowButton"]) {
                     const control = findChild(bar, name);
                     const position = control.mapToItem(bar, 0, 0);
                     verify(control.visible, name);
