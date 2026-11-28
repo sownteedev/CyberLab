@@ -66,6 +66,12 @@ class PrivateCatalogChecks(unittest.TestCase):
                     with self.assertRaisesRegex(ClientError, 'Busy'):
                         await request(client, 'StartLab', ['received'])
                     self.assertEqual(await request(client, 'ListSessions', []), [])
+                    information = json.loads(await request(client, 'GetAuthoringInfo', []))
+                    self.assertEqual(information['allowed_images'], sorted(self.api.policy.allowed_images))
+                    self.assertNotIn('definition', information)
+                    for method, body in [('EditLab', ['received']), ('CloneLab', ['received', 'cheat', 'Cheat'])]:
+                        with self.assertRaisesRegex(ClientError, 'Busy'):
+                            await request(client, method, body)
                 session = await request(client, 'StartLab', ['received'])
                 self.assertEqual(session['state'], 'RUNNING')
                 stopped = await request(client, 'StopSession', [session['id']])

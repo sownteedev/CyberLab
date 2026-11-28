@@ -31,7 +31,26 @@ nghiệm thu.
 - Wheel đã build được kiểm tra tài nguyên QML, manifest, icon và smoke probe;
   kiểm thử thật Docker trên VM sạch vẫn là bước nghiệm thu riêng.
 
-## Giới hạn
+## Hồi quy khóa bảo trì khi cập nhật
+
+Luồng cập nhật giữ khóa bảo trì đến hết bước xác minh và ghi nhận phiên bản.
+`cyberlab draft info` chỉ đọc schema và khả năng biên soạn, nên được phép chạy
+trong bước này cùng với kiểm tra phiên bản, danh mục và danh sách Session.
+Các thao tác sửa bài, nhập gói và khởi chạy lab vẫn bị chặn; không tháo khóa
+sớm hoặc bỏ qua bước xác minh để tránh lỗi `CyberLab đang cập nhật`.
+
+Kiểm thử cách ly cho cả cấu hình BusyBox và Ubuntu:
+
+```bash
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_maintenance.py
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_private_catalog.py
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_upgrade_runtime.py
+```
+
+Các bài kiểm tra dùng khóa thật và D-Bus riêng, không thay runtime hệ thống.
+Chúng không thay thế nghiệm thu cập nhật có xác thực quản trị trên VM Ubuntu.
+
+## Giới hạn nghiệm thu
 
 - Máy Arch hiện tại không chứng minh bộ cài chạy được trên Kali, Fedora,
   Debian hoặc Ubuntu khác phiên bản.

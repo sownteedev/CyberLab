@@ -229,7 +229,8 @@ class Server:
         return uid
 
     def dispatch(self, member, body, uid, sender=None):
-        if self.maintenance_path is not None and member not in {"GetVersion", "GetCapabilities", "ListLabs", "ListSessions"}:
+        if self.maintenance_path is not None and member not in {
+                "GetVersion", "GetCapabilities", "GetAuthoringInfo", "ListLabs", "ListSessions"}:
             from .maintenance import request_lease
 
             with request_lease(self.maintenance_path):
