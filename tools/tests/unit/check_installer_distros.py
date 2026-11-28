@@ -403,6 +403,18 @@ printf '%s\\n' "${{host_packages[@]}}"
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(package, result.stdout.splitlines())
 
+    def test_debian_xpra_includes_rendering_dependencies_without_recommends(self):
+        result = self.shell('''
+family=debian; host_packages=()
+package_installed() { return 1; }
+package_available() { [[ $1 == xpra ]]; }
+collect_gui_package
+printf '%s\\n' "${host_packages[@]}"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('python3-gi-cairo', result.stdout.splitlines())
+        self.assertIn('python3-pil', result.stdout.splitlines())
+
     def test_repository_prerequisites_refresh_metadata_first(self):
         result = self.shell('''
 family=debian; mode=install; refreshed=no

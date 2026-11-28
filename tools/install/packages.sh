@@ -128,6 +128,9 @@ collect_gui_package() {
     local package
     if package="$(choose_available xpra xpra-client)"; then
         host_packages+=("$package")
+        if [[ $family == debian ]]; then
+            host_packages+=(python3-gi-cairo python3-pil)
+        fi
     else
         printf '%s\n' 'WARNING: kho hiện tại không có Xpra; vẫn cài được CyberLab nhưng GUI không có đường dự phòng Xpra. Native X11/XWayland cần được kiểm tra trong phiên desktop. Không tự thêm repository bên thứ ba.'
     fi

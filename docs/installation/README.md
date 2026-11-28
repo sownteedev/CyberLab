@@ -89,9 +89,22 @@ xong, chỉ tiếp tục cài mới khi không có dấu vết cài dở nào kh
 
 ### Các chế độ cần phân biệt
 
+Cài mới chuẩn bị cả **Ubuntu 24.04 (sudo / apt)** và **BusyBox** cho máy lab.
+Đây là môi trường container của bài thực hành, không phụ thuộc việc máy chủ
+đang chạy Ubuntu hay Arch. Image Ubuntu dùng recipe cố định của CyberLab,
+tài khoản `student` UID/GID 2000; quyền sudo chỉ ở trong container. Không sao
+chép image phần mềm, bài hoặc cấu hình cá nhân từ máy phát triển.
+
+Lần đầu chuẩn bị Ubuntu cần Internet và tối thiểu **3 GiB trống** tại nơi
+Docker lưu dữ liệu và vùng tạm. Bộ cài giữ nguyên image hợp lệ đã có, không
+ghi đè image không khớp recipe đã duyệt. Nếu tải/build/xác minh thất bại,
+bộ cài không báo thành công với một bản cài chỉ có BusyBox. Wireshark, Firefox
+và các gói chọn cho từng node vẫn được chuẩn bị theo cấu hình của bài.
+
 | Lệnh/cờ | Mục đích |
 | --- | --- |
 | `--plan` | Xem kế hoạch, không thay package hoặc dịch vụ |
+| `--prepare-ubuntu` | Chuẩn bị/bật Ubuntu cho bản cài đã có; không cập nhật app hay package hệ điều hành |
 | `--check` | Kiểm tra môi trường native/QML, không triển khai |
 | `--deps-only` | Chuẩn bị dependency hệ thống, không cài dịch vụ/kho CyberLab |
 | `--no-deps` | Cài ứng dụng với dependency đã được chuẩn bị |
@@ -191,6 +204,32 @@ mới dừng daemon rồi chạy `bash install.sh --update --offline`. Chế đ�
 cầu daemon đã dừng, không còn container quản lý và Session lưu đều `STOPPED`;
 không phải lệnh để vượt kiểm tra phiên.
 
+### Bổ sung Ubuntu cho bản cài trước đây chỉ có BusyBox
+
+Đóng Studio sau khi lưu nội dung và dừng mọi phiên thực hành. Từ checkout có
+bản sửa này:
+
+```bash
+bash install.sh --prepare-ubuntu
+```
+
+Khi bản sửa đã có trên GitHub, có thể dùng bootstrap mà không cần clone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sownteedev/CyberLab/master/install.sh \
+  | bash -s -- --prepare-ubuntu
+```
+
+Lệnh dùng khóa installer và khóa bảo trì chung, kiểm tra tất cả tài khoản,
+chuẩn bị image trước khi đổi cấu hình, giữ catalog/UID/image khác và quyền tệp
+cũ. Nếu kích hoạt không đạt, cấu hình gốc được phục hồi và daemon được khởi
+động lại. Log và bản cấu hình trước khi đổi nằm trong vùng `/var/tmp` riêng;
+không tự xóa bài, bản nháp hay checkpoint. Máy đã bật Ubuntu chỉ được kiểm tra,
+không khởi động lại dịch vụ khi không cần. Mở lại Studio sau khi lệnh hoàn tất.
+
+`cyberlab update` và `install.sh --update` vẫn **không** tự thay allowlist.
+Không sửa cấu hình bằng tay chỉ để mục Ubuntu hiện lên khi image chưa sẵn sàng.
+
 ### Chuyển kho home vào hệ thống
 
 Đây là thao tác riêng, không nằm trong cập nhật thông thường:
@@ -204,5 +243,5 @@ Công cụ từ chối đích có sẵn, kiểm tra hash sau sao chép, áp quy�
 cấu hình và kiểm chứng daemon; có rollback cấu hình nếu kích hoạt lỗi.
 **Không xóa kho home cũ.** Chỉ dọn bản cũ sau nghiệm thu và quyết định riêng.
 
-**Đọc tiếp:** [Nền tảng đã thử](platforms.md) ·
+**Đọc tiếp:** [Đối chiếu cài mới với máy phát triển](verification.md) · [Nền tảng đã thử](platforms.md) ·
 [Bằng chứng kiểm thử](../archive/README.md) · [Phát triển](../development/README.md).

@@ -22,6 +22,7 @@ No options: review dependencies, confirm any upgrades, then install CyberLab.
   --install-deps   Same as the default (kept for existing instructions)
   --deps-only      Install prerequisites, but not CyberLab or its service
   --update         Guarded app-only update; never changes Qt or host packages
+  --prepare-ubuntu Prepare/enable the reviewed Ubuntu Lab image on an existing install
   --offline        Only with --update: administrator already stopped the legacy daemon
   --allow-dependency-upgrades  Preapprove reviewed upgrades (otherwise asked interactively)
   --enable-quickshell-repo     Opt in to the reviewed native PPA/COPR/OBS source for this distro
@@ -55,7 +56,7 @@ offline=no
 while (($#)); do
     case "$1" in
         --help|-h) usage; exit 0 ;;
-        --plan|--check|--deps-only|--update)
+        --plan|--check|--deps-only|--update|--prepare-ubuntu)
             [[ $mode_selected == no ]] || fail 'Choose only one operation.'
             mode="${1#--}"; mode_selected=yes ;;
         --no-deps|--install-deps)
@@ -74,7 +75,7 @@ while (($#)); do
     shift
 done
 [[ $offline == no || $mode == update ]] || fail '--offline requires --update and an already stopped daemon.'
-if [[ $mode == update || $mode == check || $mode == plan ]]; then
+if [[ $mode == update || $mode == check || $mode == plan || $mode == prepare-ubuntu ]]; then
     [[ $deps_selected == no ]] || fail "--$mode cannot be combined with dependency options."
     dependencies=no
 fi
@@ -139,7 +140,7 @@ fi
 python="$(select_python)" || fail 'Python 3.12+ with venv/ensurepip is required; use a supported release. The installer will not replace system Python.'
 printf 'Desktop account: %s (UID %s); Python: %s\n' "$desktop_user" "$desktop_uid" "$python"
 admin=("$python" -I "$ROOT/tools/install/runtime_admin.py" --user "$desktop_user")
-if [[ $mode == update ]]; then
+if [[ $mode == update || $mode == prepare-ubuntu ]]; then
     "${admin[@]}" check --backend-only
 elif [[ $mode == install || $mode == deps-only ]]; then
     "${admin[@]}" check --allow-stopped-docker
@@ -173,6 +174,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 printf 'Build artifacts and verification: %s\n' "$stage"
 exec > >(tee -a "$stage/install.log") 2>&1
+if [[ $mode == prepare-ubuntu ]]; then
+    "${admin[@]}" prepare-ubuntu --stage "$stage" --lock-fd 9
+    printf '%s\n' 'DONE: Ubuntu Lab environment verified; app, host packages and Lab data were not replaced.'
+    exit 0
+fi
 [[ $mode != update ]] || printf '%s\n' 'CYBERLAB_UPDATE_PHASE:build'
 "${admin[@]}" stage --stage "$stage"
 shopt -s nullglob
@@ -200,7 +206,7 @@ else
     for directory in /etc/dbus-1/system.d /usr/local/bin /usr/share/applications; do
         [[ -d $directory ]] || install -d -m 755 "$directory"
     done
-    install -m 644 "$stage/config/daemon.toml" /etc/cyberlab/daemon.toml
+    install -m 600 "$stage/config/daemon.toml" /etc/cyberlab/daemon.toml
     install -m 644 "$stage/config/authoring.conf" /etc/systemd/system/cyberlabd.service.d/authoring.conf
     install -m 644 "$stage/config/cyberlabd.service" /etc/systemd/system/cyberlabd.service
     install -m 644 "$stage/config/org.ptit.CyberLab1.conf" /etc/dbus-1/system.d/org.ptit.CyberLab1.conf
@@ -216,7 +222,7 @@ else
     systemctl enable --now cyberlabd.service
     "${admin[@]}" verify --stage "$stage" --wheel "$wheel"
     service_started=no
-    printf '%s\n' 'DONE: CyberLab installed with a verified GUI runtime. No sample Labs were added.'
+    printf '%s\n' 'DONE: CyberLab installed with a verified GUI runtime and Ubuntu/BusyBox Lab environments. No sample Labs were added.'
 fi
 printf '%s\n' 'As the desktop user: cyberlab info; cyberlab-studio' \
     'Save editor work and reopen Studio yourself; no existing windows were closed.'

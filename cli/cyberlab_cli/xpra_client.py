@@ -14,6 +14,12 @@ def probe():
     if not 3 <= major <= 6:
         raise RuntimeError('CyberLab supports Xpra 3 through 6; this version needs compatibility testing')
     gi.require_version('Gtk', '3.0')
+    gi.require_foreign('cairo')
+    from gi.repository import Gtk
+    from PIL import Image
+    if Gtk.get_major_version() != 3:
+        raise RuntimeError('The Xpra client requires GTK3')
+    Image.new('RGB', (1, 1)).close()
     return {'version': __version__, 'ready': callable(rencodeplus.dumps)}
 
 def display_probe():

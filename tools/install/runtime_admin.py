@@ -36,6 +36,7 @@ STUDIO = Path("/usr/local/bin/cyberlab-studio")
 DESKTOP = Path("/usr/share/applications/cyberlab-studio.desktop")
 SERVICE = "cyberlabd.service"
 IMAGE = "busybox:1.37.0"
+UBUNTU_IMAGE = "cyberlab/ubuntu:24.04-1"
 MANAGED = "org.ptit.cyberlab.managed=mvp-v1"
 SEARCH_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
 ENVIRONMENT = {
@@ -47,8 +48,8 @@ ENVIRONMENT = {
 COMMANDS = ("systemctl", "systemd-analyze", "dbus-send", "docker", "runuser")
 
 
-def tool(name):
-    spec = spec_from_file_location(name, ROOT / "tools/install" / f"{name}.py")
+def tool(name, directory="install"):
+    spec = spec_from_file_location(name, ROOT / "tools" / directory / f"{name}.py")
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -383,7 +384,8 @@ def configuration(account):
     catalog = STATE / "labs"
     config = (f"catalog = {json.dumps(str(catalog), ensure_ascii=False)}\n"
               f"allowed_uids = [{account.pw_uid}]\n"
-              f"allowed_images = [{json.dumps(IMAGE)}]\nauthoring = true\n")
+              f"allowed_images = [{json.dumps(IMAGE)}, {json.dumps(UBUNTU_IMAGE)}]\n"
+              f"workstation_images = [{json.dumps(UBUNTU_IMAGE)}]\nauthoring = true\n")
     escaped = json.dumps(str(catalog).replace("%", "%%"), ensure_ascii=False)
     dropin = (f"[Service]\nProtectHome=true\nReadWritePaths={escaped} {STATE}/authoring\n"
               "UMask=0077\n")
@@ -411,7 +413,7 @@ def prepare_catalog(account, catalog):
         catalog.chmod(0o700)
 
 
-def docker_preflight(account):
+def docker_preflight(account, stage):
     run("/usr/bin/docker", "--host=unix:///var/run/docker.sock", "info", "--format", "{{.ServerVersion}}")
     run(PYTHON, "-I", "-c", "import os; assert not os.access('/var/run/docker.sock', os.W_OK), 'Desktop user must not have Docker socket access'", account=account)
     for kind in ("container", "network"):
@@ -425,13 +427,23 @@ def docker_preflight(account):
         run("/usr/bin/docker", "--host=unix:///var/run/docker.sock", "pull", IMAGE, timeout=600)
 
 
-def verify_daemon(account):
+    tool("prepare_ubuntu_workstation", directory="admin").prepare_image(stage)
+
+def verify_daemon(account, *, require_workstation=False):
     for attempt in range(30):
         result = run(CLI, "info", account=account, check=False, timeout=15)
         if result.returncode == 0:
             information = json.loads(result.stdout)
             if {"runtime:docker", "authoring"}.issubset(information.get("capabilities", [])):
                 run(CLI, "labs", account=account)
+                policy = json.loads(run(CLI, "draft", "info", account=account).stdout)
+                if require_workstation:
+                    profiles = policy.get("image_profiles", [])
+                    if (not {"machine-setup-v1", "seamless-apps"}.issubset(information.get("capabilities", []))
+                            or not policy.get("machine_setup") or not policy.get("software_preparation")
+                            or not any(profile.get("image") == UBUNTU_IMAGE and profile.get("workstation")
+                                       for profile in profiles)):
+                        raise RuntimeError("Ubuntu authoring profile/software support missing after installation")
                 return information
         time.sleep(0.5)
     raise RuntimeError("Daemon API did not become ready; inspect journalctl -u cyberlabd")
@@ -479,20 +491,25 @@ def atomic_json(destination, document):
             os.unlink(temporary)
 
 
-def record_installation(account, stage, wheel):
+def record_installation(account, stage, wheel, *, require_workstation=False):
     print("CYBERLAB_UPDATE_PHASE:verify", flush=True)
     import tomllib
     studio = Path(run(APP / "venv/bin/python", "-I", "-c",
                       "from importlib.resources import files; print(files('cyberlab_studio').joinpath('studio'))").stdout.strip())
     runtime = probe_runtime(account, studio_path=studio)
     config = tomllib.loads((CONFIG / "daemon.toml").read_text())
+    configured_ubuntu = UBUNTU_IMAGE in config.get("workstation_images", []) and UBUNTU_IMAGE in config["allowed_images"]
+    if require_workstation and not configured_ubuntu:
+        raise RuntimeError("Fresh installation is missing Ubuntu workstation policy")
     receipt = {"result": "passed", "installed_at": datetime.now(timezone.utc).isoformat(),
                "wheel": wheel.name, "sha256": sha256(read_regular(wheel, 16 * 1024 * 1024)).hexdigest(),
                "package_version": wheel.name.split("-")[1],
                "quickshell": runtime,
                "user": account.pw_name, "uid": account.pw_uid,
                "catalog": config["catalog"],
-               "image": IMAGE, "verification": verify_daemon(account), "staging": str(stage)}
+               "image": IMAGE, "images": config["allowed_images"],
+               "workstation_images": config.get("workstation_images", []),
+               "verification": verify_daemon(account, require_workstation=configured_ubuntu), "staging": str(stage)}
     receipt.update(source_identity(account))
     atomic_json(stage / "installation-verification.json", receipt)
     atomic_json(APP / "installation.json", receipt)
@@ -557,7 +574,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user", required=True)
-    parser.add_argument("operation", choices=("account", "check", "native-version", "dnf-plan", "stage", "prepare", "verify", "update"))
+    parser.add_argument("operation", choices=("account", "check", "native-version", "dnf-plan", "stage", "prepare", "prepare-ubuntu", "verify", "update"))
     parser.add_argument("--backend-only", action="store_true")
     parser.add_argument("--allow-stopped-docker", action="store_true")
     parser.add_argument("--stage", type=Path)
@@ -592,14 +609,16 @@ def main():
     if not stat.S_ISDIR(status.st_mode) or status.st_uid != 0 or status.st_mode & 0o077:
         raise ValueError("Staging must be a private root-owned directory, not a link")
     os.umask(0o022)
-    if arguments.operation == "stage":
+    if arguments.operation == "prepare-ubuntu":
+        tool("prepare_ubuntu_workstation", directory="admin").prepare_existing(account.pw_uid, stage, arguments.lock_fd)
+    elif arguments.operation == "stage":
         build_wheels(account, stage)
         stage_configuration(account, stage)
     elif arguments.operation == "prepare":
         fresh_targets()
         runtime = probe_runtime(account)
         (stage / "native-runtime.json").write_text(json.dumps(runtime, indent=2) + "\n")
-        docker_preflight(account)
+        docker_preflight(account, stage)
         prepare_catalog(account, configuration(account)[0])
     else:
         wheel = arguments.wheel
@@ -615,7 +634,7 @@ def main():
             except (OSError, ValueError) as error:
                 print(f"WARNING: update verified; old managed backup retained: {error}")
         else:
-            record_installation(account, stage, wheel)
+            record_installation(account, stage, wheel, require_workstation=True)
     shadow = Path(account.pw_dir) / ".local/share/applications/cyberlab-studio.desktop"
     if shadow.exists() and arguments.operation in {"verify", "update"}:
         print(f"NOTE: a personal shortcut may shadow the global launcher; preserved: {shadow}")

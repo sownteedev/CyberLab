@@ -2,6 +2,9 @@
 
 Cài đặt dùng `bash install.sh` tại gốc repository; cập nhật từ checkout dùng
 `bash install.sh --update`. Không gọi các module shell nội bộ thay entrypoint.
+Máy đã cài nhưng chỉ có BusyBox dùng `bash install.sh --prepare-ubuntu` sau
+khi lưu/đóng Studio và dừng các phiên. Cài mới tự chuẩn bị Ubuntu; cập nhật
+thông thường không tự thay chính sách môi trường.
 
 ## Cấu trúc
 
@@ -33,7 +36,7 @@ cả tích hợp dùng private D-Bus và MemoryRuntime, không chỉ unit test t
 | [install/upgrade_runtime.py](install/upgrade_runtime.py) | Kiểm tra Session/Studio, backup và cập nhật có rollback. |
 | [admin/migrate_catalog.py](admin/migrate_catalog.py) | Chuyển kho bài theo thao tác quản trị được xác nhận. |
 | [admin/prepare_lab_images.py](admin/prepare_lab_images.py) | Chuẩn bị image theo recipe được giới hạn. |
-| [admin/prepare_ubuntu_workstation.py](admin/prepare_ubuntu_workstation.py) | Chuẩn bị image Ubuntu workstation và kích hoạt khi được yêu cầu. |
+| [admin/prepare_ubuntu_workstation.py](admin/prepare_ubuntu_workstation.py) | Recipe Ubuntu dùng chung với cài mới; kiểm tra image, kích hoạt có khóa và phục hồi cấu hình. Dùng qua `install.sh --prepare-ubuntu` cho máy đã cài. |
 | [dev/vendor_code_syntax.py](dev/vendor_code_syntax.py) | Cập nhật tài nguyên tô màu cú pháp được đóng gói. |
 
 Các file còn lại trong `install/` là thành phần nội bộ: adapter package manager,
@@ -54,6 +57,7 @@ bản cài hoặc dữ liệu thật.
 /usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_session_state.py
 /usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_checkwork_regression.py
 /usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_system_update.py
+/usr/lib/cyberlab/venv/bin/python -B tools/tests/unit/check_install_parity.py
 node tools/tests/ui/check_account_model.js
 python3 -B tools/tests/ui/check_notifications.py --suite editor --native
 /usr/lib/cyberlab/venv/bin/python -B tools/tests/ui/check_machine_setup_workflow.py
